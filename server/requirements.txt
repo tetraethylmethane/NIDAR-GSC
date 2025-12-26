@@ -1,0 +1,26 @@
+python-dotenv
+requests
+
+protobuf<=3.20.0
+pylint
+mypy
+pre-commit
+
+# Flask Webserver
+Flask
+Flask-Cors
+flask-socketio
+
+# UAV Handler
+dronekit
+pymavlink
+pySerial
+
+# Image Handler
+python-socketio
+eventlet
+
+
+# log -> KML generator
+fastkml
+
