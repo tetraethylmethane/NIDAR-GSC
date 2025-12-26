@@ -1,12 +1,7 @@
 # GroundStation
 
-[![wakatime](https://wakatime.com/badge/github/tj-uav/GroundStation.svg)](https://wakatime.com/badge/github/tj-uav/GroundStation)
-
 Team Sammpaati's Custom Ground Station
 
-## Note: Mac specfic updated installation instructions:
-
-[for_mac_users](for_mac_users.md)
 
 ## Set Up Server
 
