@@ -1,2 +1,2 @@
-const backend = "http://localhost:5000";
+const backend = "http://172.29.93.93:5000";
 export { backend };

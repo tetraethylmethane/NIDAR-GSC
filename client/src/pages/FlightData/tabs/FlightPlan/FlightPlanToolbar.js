@@ -475,7 +475,7 @@ const FlightPlanToolbar = props => {
                         <div style={{ "display": "flex", "alignItems": "center" }}>
                             <span>Mission File:</span>
                         </div>
-                        <Button href="http://localhost:5000/uav/commands/view" newTab={true} title="Open the plane Pixhawk mission file in a new tab.">View</Button>
+                        <Button href="https://localhost:5000/uav/commands/view" newTab={true} title="Open the plane Pixhawk mission file in a new tab.">View</Button>
                         <Button disabled={props.getters.pathSaved} onClick={() => {
                             let miss = []
                             for (const [i, value] of props.getters.path.entries()) {

@@ -2,7 +2,7 @@ import axios from "axios"
 
 // there will be a connection page which will be able to change this
 // for now it stays constant
-var url = "http://localhost:5000"
+var url = "http://172.29.93.93:5000"
 
 const httpget = async (endpoint, func, error) => {
     try {
