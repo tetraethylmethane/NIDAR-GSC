@@ -50,7 +50,7 @@ const positiveSignedIntValidation = (v, value, set) => {
 
 const FlightPlanMap = props => {
 	const [state, setState] = useState({
-		latlng: { lat: 38.315339, lng: -76.548108 },
+		latlng: { lat: 28.421993726977504, lng: 77.52627775611397 },
 	})
 	const [edited, setEdited] = useState(0)
 

@@ -1,7 +1,7 @@
 {
     "uav": {
         "telemetry": {
-            "port": "/dev/ttyUSB0",
+            "port": "/dev/ttyACM0",
             "serial": false,
             "log": true
         },
@@ -11,8 +11,8 @@
             "quality": 95
         },
         "home": {
-            "lat": 38.315339,
-            "lon": -76.548108,
+            "lat": 28.421975026036133,
+            "lon": 77.52621253282598,
             "alt": 142
         }
     }

@@ -1,3 +1,4 @@
+// client/src/pages/FlightData/tabs/Main.js
 import React, {useEffect, useRef, useState} from "react"
 import { Box, Button, Dropdown, Label } from "components/UIElements"
 import { Row, Column, Modal, ModalHeader, ModalBody } from "components/Containers"
@@ -9,19 +10,14 @@ import {dark, darkest, darkdark, red} from "theme/Colors"
 import {getUrl, httpget, httppost} from "../../../backend"
 import { useInterval } from "../../../util"
 import { darkred } from "../../../theme/Colors"
-import { VariableSizeList } from "react-window";
-
-const actions = {
-	waypoint: [0, 1, 2, 3, 4]
-}
 
 const Modes = ["Manual", "Auto", "Loiter", "RTL", "Takeoff", "Land", "Circle", "Stabilize"]
 
 const colors = {
-	INFO: darkdark,
-	IMPORTANT: "#346CBC",
+	INFO: "#4A90E2",
+	IMPORTANT: "#2F6FDB",
 	WARNING: "#F59505",
-	ERROR: red,
+	ERROR: "#E55353",
 	CRITICAL: "#B52F9A"
 }
 
@@ -33,12 +29,10 @@ const Main = () => {
 	const [AlatLong, setAlatLong] = useState({ "lat": 0, "lon": 0 })
 	const [Aaltitude, setAaltitude] = useState(0)
 	const [AaltitudeGlobal, setAaltitudeGlobal] = useState(0)
-	const [AaltitudeIsGlobal, setAaltitudeIsGlobal] = useState(false)
 	const [AebayBattery, setAebayBattery] = useState(16.8)
 	const [AflightBattery, setAflightBattery] = useState(50.4)
 	const [AgroundSpeed, setAgroundSpeed] = useState(0)
 	const [Aairspeed, setAairspeed] = useState(0)
-	const [AspeedIsInKnots, setAspeedIsInKnots] = useState(false)
 	const [Astatus, setAstatus] = useState("")
 	const [Amode, setAmode] = useState("")
 	const [Awaypoint, setAwaypoint] = useState([1, 0])
@@ -46,12 +40,10 @@ const Main = () => {
 	const [Aconnection, setAconnection] = useState([95, 0, 95])
 
 	const [logs, setLogs] = useState(["Loading logs..."])
-	const container = useRef()
 
 	useInterval(400, () => {
 		httpget("/uav/stats", response => {
 			let data = response.data
-
 			setAarmed(data.result.armed)
 			setAorientation({
 				"yaw": data.result.quick.orientation.yaw,
@@ -82,19 +74,12 @@ const Main = () => {
 	const [waypointNum, setWaypointNum] = useState(1)
 
 	return (
-		<div
-			style={{
-				display: "flex",
-				flexDirection: "column",
-				height: "calc(100vh - 9.5rem)",
-			}}
-		>
+		<MainContainer>
 			<Modal open={open} setOpen={setOpen}>
 				<ModalHeader>Terminate?</ModalHeader>
 				<ModalBody>
 					Are you SURE you want to terminate the UAV? If configured properly, this will use AFS_TERMINATE to set:
-					<br />
-					<br />
+					<br /><br />
 					<ul>
 						<li>Throttle Closed</li>
 						<li>Full Up Elevator</li>
@@ -104,8 +89,7 @@ const Main = () => {
 					</ul>
 					<br />
 					<b>THE PLANE WILL CRASH!!!</b>
-					<br />
-					<br />
+					<br /><br />
 					<Button warning={true} color={darkred} style={{ "width": "9rem", height: "2.85rem" }} onClick={() => {
 						httppost("/uav/terminate")
 						setOpen(false)
@@ -113,167 +97,472 @@ const Main = () => {
 				</ModalBody>
 			</Modal>
 
-			<StyledDiv>
-				<Label className="paragraph" style={{ "font-size": "2.1em", color: "black", "margin-top": "auto", "margin-bottom": 0 }}><b>UAV&emsp;</b></Label>
-				{Aarmed.includes("DISARMED") ? <UAVbw onClick={() => httppost("/uav/arm")} title="Disarmed - Click to Arm" /> : <UAV onClick={() => httppost("/uav/disarm")} title="Armed - Click to Disarm" />}
-			</StyledDiv>
-			<Column style={{ marginBottom: "1rem", gap: "1rem" }}>
-				<Row style={{ gap: "1rem" }}>
-					<Row>
-						<Box label="Roll" content={(Aorientation.roll.toFixed(2)) + "\u00B0"} />
-						<Box label="Pitch" content={(Aorientation.pitch.toFixed(2)) + "\u00B0"} />
-						<Box label="Yaw" content={(Aorientation.yaw.toFixed(2))  + "\u00B0"} />
-					</Row>
-					<Row>
-						<Box label=" " content={Astatus} />
-						<div>
-							<Label>&nbsp;</Label>
-							<Dropdown
-								initial={Modes.find(m => m.toUpperCase() === Amode)}
-								onChange={i => {
-									let m = Modes[i].toUpperCase()
-									if (m === "LAND") {
-										httppost("/uav/commands/insert", { "command": "LAND", "lat": 0.0, "lon": 0.0, alt: 0.0 })
-									} else {
-										httppost("/uav/mode/set", { "mode": m })
-									}
-									setAmode(m)
-								}}
-							>
-								{Modes.map((v, i) => {
-									return (
-										<span value={i}>{v}</span>
-									)
-								})}
-							</Dropdown>
-						</div>
-					</Row>
-				</Row>
-				<Row style={{ gap: "1rem" }}>
-					<Row>
-						<Box label="Latitude" content={AlatLong.lat.toFixed(7) + "\u00B0"} />
-						<Box label="Longitude" content={AlatLong.lon.toFixed(7) + "\u00B0"} />
-					</Row>
-					<Row style={{ gap: "0.1rem" }}>
-						<Box label="Altitude"
-							 content={Aaltitude.toFixed(2) + " ft AGL"}
-							 title="The plane's altitude, from the home position's altitude." />
-						<Box label=" "
-							 content={AaltitudeGlobal.toFixed(2) + " ft MSL"}
-							 title="The plane's altitude, above mean sea level." />
-					</Row>
-				</Row>
-				<Row style={{ gap: "1rem" }}>
-					<Row style={{ gap: "0.1rem" }}>
-						<Box label="Ground Speed"
-							 content={AgroundSpeed.toFixed(2) + " mph"}
-							 title="Speed from GPS, in miles per hour." />
-						<Box label=" "
-							 content={(0.868976 * AgroundSpeed).toFixed(2) + " knots"}
-							 title="Speed from GPS, in knots." />
-					</Row>
-					<Row style={{ gap: "0.1rem" }}>
-						<Box label="Air Speed"
-							 content={Aairspeed.toFixed(2) + " mph"}
-							 title="Speed measured from plane sensors, in miles per hour." />
-						<Box label=" "
-							 content={(0.868976 * Aairspeed).toFixed(2) + " knots"}
-							 title="Speed measured from plane sensors, in knots." />
-					</Row>
-				</Row>
-				<Row style={{ gap: "1rem" }} columns="minmax(0, 2fr) minmax(0, 1.05fr)">
-					<Row columns="minmax(0, 3.5fr) minmax(0, 3fr) minmax(0, 3fr) minmax(0, 1.75fr)">
-						<Box label="From Home" content={AdistFromHome.toFixed(0) + " ft"} title="The distance from the plane to its Home location." />
-						<Box label="HDOP" content={(Aconnection[0] / 100).toFixed(2) + " m"} title="Horizontal dilution of precision. The higher, the less accurate the GPS is." />
-						<Box label="VDOP" content={(Aconnection[1] / 100).toFixed(2) + " m"} title="Vertical dilution of precision. The higher, the less accurate the GPS is." />
-						<Box label="# Sats" content={Aconnection[2].toFixed(0)} title="The number of satellites the plane is using. 4 at a minimum, 6 is reasonable, 8 is good, and 10 is very accurate." />
-					</Row>
-					<Row style={{ gap: "0.1rem" }}>
-						<Box label="Flight Batt" content={AflightBattery.toFixed(2) + "V"} />
-						<Box label="Ebay Batt" content={AebayBattery.toFixed(2) + "V"} />
-					</Row>
-				</Row>
-				<Row height="2.75rem" style={{ gap: "0.5rem" }}>
-					<Row>
-						<Box label="Waypoint #" content={(Awaypoint[0] === -1 ? "-" : "#" + (Awaypoint[0] + 1).toFixed(0))} title="The waypoint number the plane is traveling to." />
-						<Box label="Distance To WP" content={(Awaypoint[0] === -1 ? "-" : Awaypoint[1].toFixed(2) + " ft")} title="The distance to the next waypoint." />
-					</Row>
-					<Row style={{ gap: "1rem" }}>
-						<Row>
-							<div>
-								<Box
-									label="Jump"
-									content=""
-									onChange={v => {
-										let value = v
-										let newvalue = ""
-										if (value.length > 3) {
-											value = v.substring(0, 3)
-										}
-										console.log(value)
-										if (value.length >= 1) {
-											for (let i = 0; i < value.length; i++) {
-												let ascii = value.charCodeAt(i)
-												if (ascii >= 48 && ascii <= 57) {
-													newvalue += value[i]
-												}
-											}
-										}
-										setWaypointNum(parseInt(newvalue))
-										return newvalue
-									}}
-									onKeyDown={e => {
-										if (e.nativeEvent.key === "Enter") e.preventDefault()
-										e.stopPropagation()
-									}}
-									placeholder="#"
-									style={{ textAlign: "center" }}
-									line="300%"
-									editable
-								/>
-							</div>
-							<div>
-								<Label>&nbsp;</Label>
-								<Button onClick={() => httppost("/uav/commands/jump", { "command": waypointNum })} style={{ height: "2.85rem" }}>Go!</Button>
-							</div>
-						</Row>
-						<Row>
-							<div>
-								<Label>&nbsp;</Label>
-								<Button warning={true} color={darkred} style={{ height: "2.85rem" }} onClick={() => setOpen(true)} title="Make the plane terminate (force it to crash), if configured.">Terminate</Button>
-							</div>
-						</Row>
-					</Row>
-				</Row>
-			</Column>
-			<div style={{ "padding-top": "1.5rem" }}>
-				<StyledLogsContainer>
-					{logs.map((log, index) => <StyledLog content={log} index={index} style={{ height: getTextHeight(log) }} />)}
-				</StyledLogsContainer>
-			</div>
-		</div>
+			{/* Top Section: Video Feed */}
+			<TopSection>
+				<VideoFeedSection>
+					<VideoFeedHeader>
+						<LiveIndicator />
+						<span>LIVE VIDEO FEED</span>
+					</VideoFeedHeader>
+					<VideoFeedContainer>
+						<VideoPlaceholder>
+							<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+								<path d="M23 7l-7 5 7 5V7z"/>
+								<rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+							</svg>
+							<span>Camera feed will appear here</span>
+						</VideoPlaceholder>
+					</VideoFeedContainer>
+				</VideoFeedSection>
+			</TopSection>
+
+			{/* Compact Data Grid */}
+			<CompactDataGrid>
+				{/* Row 1: Orientation, Position, Altitude */}
+				<DataRow>
+					<DataBlock>
+						<BlockLabel>ORIENTATION</BlockLabel>
+						<MetricsInline>
+							<Metric>
+								<MLabel>Roll</MLabel>
+								<MValue>{Aorientation.roll.toFixed(2)}°</MValue>
+							</Metric>
+							<Metric>
+								<MLabel>Pitch</MLabel>
+								<MValue>{Aorientation.pitch.toFixed(2)}°</MValue>
+							</Metric>
+							<Metric>
+								<MLabel>Yaw</MLabel>
+								<MValue>{Aorientation.yaw.toFixed(2)}°</MValue>
+							</Metric>
+						</MetricsInline>
+					</DataBlock>
+
+					<DataBlock>
+						<BlockLabel>POSITION</BlockLabel>
+						<MetricsInline>
+							<Metric>
+								<MLabel>Lat</MLabel>
+								<MValue>{AlatLong.lat.toFixed(7)}°</MValue>
+							</Metric>
+							<Metric>
+								<MLabel>Lon</MLabel>
+								<MValue>{AlatLong.lon.toFixed(7)}°</MValue>
+							</Metric>
+						</MetricsInline>
+					</DataBlock>
+
+					<DataBlock>
+						<BlockLabel>ALTITUDE</BlockLabel>
+						<MetricsInline>
+							<Metric>
+								<MLabel>AGL</MLabel>
+								<MValue>{Aaltitude.toFixed(2)} ft</MValue>
+							</Metric>
+							<Metric>
+								<MLabel>MSL</MLabel>
+								<MValue>{AaltitudeGlobal.toFixed(2)} ft</MValue>
+							</Metric>
+						</MetricsInline>
+					</DataBlock>
+				</DataRow>
+
+				{/* Row 2: Speed, Battery, Flight Mode */}
+				<DataRow>
+					<DataBlock>
+						<BlockLabel>SPEED</BlockLabel>
+						<MetricsInline>
+							<Metric>
+								<MLabel>Ground</MLabel>
+								<MValue>{AgroundSpeed.toFixed(2)} mph</MValue>
+								<MSub>{(0.868976 * AgroundSpeed).toFixed(2)} kts</MSub>
+							</Metric>
+							<Metric>
+								<MLabel>Air</MLabel>
+								<MValue>{Aairspeed.toFixed(2)} mph</MValue>
+								<MSub>{(0.868976 * Aairspeed).toFixed(2)} kts</MSub>
+							</Metric>
+						</MetricsInline>
+					</DataBlock>
+
+					<DataBlock>
+						<BlockLabel>BATTERY</BlockLabel>
+						<MetricsInline>
+							<Metric>
+								<MLabel>Flight</MLabel>
+								<MValue>{AflightBattery.toFixed(2)} V</MValue>
+							</Metric>
+							<Metric>
+								<MLabel>Ebay</MLabel>
+								<MValue>{AebayBattery.toFixed(2)} V</MValue>
+							</Metric>
+						</MetricsInline>
+					</DataBlock>
+
+					<DataBlock>
+						<BlockLabel>FLIGHT MODE</BlockLabel>
+						<ModeDropdown
+							initial={Modes.find(m => m.toUpperCase() === Amode)}
+							onChange={i => {
+								let m = Modes[i].toUpperCase()
+								if (m === "LAND") {
+									httppost("/uav/commands/insert", { "command": "LAND", "lat": 0.0, "lon": 0.0, alt: 0.0 })
+								} else {
+									httppost("/uav/mode/set", { "mode": m })
+								}
+								setAmode(m)
+							}}
+						>
+							{Modes.map((v, i) => <span key={i} value={i}>{v}</span>)}
+						</ModeDropdown>
+					</DataBlock>
+				</DataRow>
+
+				{/* Row 3: GPS, Waypoint, Controls */}
+				<DataRow>
+					<DataBlock>
+						<BlockLabel>GPS & NAVIGATION</BlockLabel>
+						<MetricsInline>
+							<Metric>
+								<MLabel>Home</MLabel>
+								<MValue>{AdistFromHome.toFixed(0)} ft</MValue>
+							</Metric>
+							<Metric>
+								<MLabel>HDOP</MLabel>
+								<MValue>{(Aconnection[0] / 100).toFixed(2)} m</MValue>
+							</Metric>
+							<Metric>
+								<MLabel>VDOP</MLabel>
+								<MValue>{(Aconnection[1] / 100).toFixed(2)} m</MValue>
+							</Metric>
+							<Metric>
+								<MLabel>Sats</MLabel>
+								<MValue>{Aconnection[2].toFixed(0)}</MValue>
+							</Metric>
+						</MetricsInline>
+					</DataBlock>
+
+					<DataBlock>
+						<BlockLabel>WAYPOINT</BlockLabel>
+						<MetricsInline>
+							<Metric>
+								<MLabel>Current</MLabel>
+								<MValue>{Awaypoint[0] === -1 ? "—" : `#${(Awaypoint[0] + 1).toFixed(0)}`}</MValue>
+							</Metric>
+							<Metric>
+								<MLabel>Distance</MLabel>
+								<MValue>{Awaypoint[0] === -1 ? "—" : `${Awaypoint[1].toFixed(2)} ft`}</MValue>
+							</Metric>
+						</MetricsInline>
+					</DataBlock>
+				</DataRow>
+			</CompactDataGrid>
+
+			{/* Logs Section */}
+			<LogsSection>
+				<SectionLabel>SYSTEM LOGS</SectionLabel>
+				<LogsContainer>
+					{logs.map((log, index) => <StyledLog key={index} content={log} index={index} />)}
+				</LogsContainer>
+			</LogsSection>
+		</MainContainer>
 	)
 }
 
+// Styled Components
+const MainContainer = styled.div`
+	display: flex;
+	flex-direction: column;
+	height: calc(100vh - 9.5rem);
+	gap: 0.5rem;
+	overflow: hidden;
+	padding: 0.5rem;
+`
+
+const TopSection = styled.div`
+	height: 280px;
+	flex-shrink: 0;
+`
+
+const VideoFeedSection = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+	height: 100%;
+`
+
+const VideoFeedHeader = styled.div`
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	font-size: 0.7rem;
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	color: #2F6FDB;
+`
+
+const LiveIndicator = styled.div`
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: #E55353;
+	box-shadow: 0 0 8px #E55353;
+	animation: pulse 2s infinite;
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.5; }
+	}
+`
+
+const VideoFeedContainer = styled.div`
+	flex: 1;
+	background: linear-gradient(135deg, #0A1628 0%, #1A2B42 100%);
+	border: 1px solid rgba(47, 111, 219, 0.2);
+	border-radius: 6px;
+	overflow: hidden;
+	position: relative;
+
+	&::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(
+			90deg,
+			rgba(47, 111, 219, 0.05) 0%,
+			transparent 50%,
+			rgba(47, 111, 219, 0.05) 100%
+		);
+		pointer-events: none;
+	}
+`
+
+const VideoPlaceholder = styled.div`
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	color: rgba(47, 111, 219, 0.4);
+	gap: 0.5rem;
+
+	span {
+		font-size: 0.8rem;
+		font-weight: 500;
+	}
+`
+
+const CompactDataGrid = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+	flex-shrink: 0;
+`
+
+const DataRow = styled.div`
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 0.4rem;
+`
+
+const DataBlock = styled.div`
+	background: linear-gradient(135deg, rgba(47, 111, 219, 0.03) 0%, rgba(15, 31, 46, 0.02) 100%);
+	border: 1px solid rgba(47, 111, 219, 0.12);
+	border-radius: 6px;
+	padding: 0.4rem 0.6rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+	transition: all 0.2s ease;
+
+	&:hover {
+		border-color: rgba(47, 111, 219, 0.25);
+		background: linear-gradient(135deg, rgba(47, 111, 219, 0.05) 0%, rgba(15, 31, 46, 0.03) 100%);
+	}
+`
+
+const BlockLabel = styled.div`
+	font-size: 0.65rem;
+	font-weight: 600;
+	letter-spacing: 0.12em;
+	color: #6F879E;
+	text-transform: uppercase;
+`
+
+const MetricsInline = styled.div`
+	display: flex;
+	gap: 0.6rem;
+	flex-wrap: wrap;
+`
+
+const Metric = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 0.1rem;
+	min-width: 0;
+`
+
+const MLabel = styled.div`
+	font-size: 0.65rem;
+	font-weight: 500;
+	color: #8FA6BC;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+`
+
+const MValue = styled.div`
+	font-size: ${props => props.small ? '0.75rem' : '0.85rem'};
+	font-weight: 600;
+	color: #2F6FDB;
+	font-variant-numeric: tabular-nums;
+	letter-spacing: -0.02em;
+	white-space: nowrap;
+`
+
+const MSub = styled.div`
+	font-size: 0.65rem;
+	color: #6F879E;
+	font-variant-numeric: tabular-nums;
+`
+
+const ControlsInline = styled.div`
+	display: flex;
+	gap: 0.5rem;
+	align-items: flex-end;
+`
+
+const ControlGroup = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+`
+
+const ControlRow = styled.div`
+	display: flex;
+	gap: 0.4rem;
+	align-items: center;
+`
+
+const FlightModeGrid = styled.div`
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 0.75rem;
+	align-items: center;
+`
+
+const FlightModeLeft = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+`
+
+const ModeDropdown = styled(Dropdown)`
+	height: 1.8rem;
+	font-size: 0.75rem;
+	padding: 0.25rem 0.5rem;
+	min-width: 6rem;
+	
+	button {
+		height: 1.8rem;
+		font-size: 0.75rem;
+		padding: 0.25rem 0.5rem;
+	}
+`
+
+const ArmStatusContainer = styled.div`
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.3rem;
+	justify-content: center;
+`
+
+const StatusBadge = styled.div`
+	padding: 0.2rem 0.6rem;
+	border-radius: 4px;
+	font-size: 0.65rem;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	background: ${props => props.armed ? 
+		'linear-gradient(135deg, rgba(47, 191, 113, 0.2), rgba(47, 191, 113, 0.1))' : 
+		'linear-gradient(135deg, rgba(143, 166, 188, 0.2), rgba(143, 166, 188, 0.1))'};
+	color: ${props => props.armed ? '#2FBF71' : '#8FA6BC'};
+	border: 1px solid ${props => props.armed ? 'rgba(47, 191, 113, 0.3)' : 'rgba(143, 166, 188, 0.3)'};
+	white-space: nowrap;
+`
+
 const UAV = styled(RawUAV)`
-	height: 5em;
-	width: 7em;
-	margin-right: 0;
-	margin-left: auto;
-	margin-bottom: -2em;
+	height: 2.5em;
+	width: 3.5em;
 	cursor: pointer;
+	opacity: 0.9;
+	transition: all 0.3s ease;
+
+	&:hover {
+		opacity: 1;
+		transform: scale(1.05);
+	}
 `
 
 const UAVbw = styled(RawUAVbw)`
-	height: 5em;
-	width: 7em;
-	margin-right: 0;
-	margin-left: auto;
-	margin-bottom: -2em;
+	height: 2.5em;
+	width: 3.5em;
 	cursor: pointer;
+	opacity: 0.5;
+	transition: all 0.3s ease;
+
+	&:hover {
+		opacity: 0.7;
+		transform: scale(1.05);
+	}
 `
 
-const StyledLog = ({ content, style, index }) => {
+const LogsSection = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+	flex: 1;
+	min-height: 0;
+`
+
+const SectionLabel = styled.div`
+	font-size: 0.65rem;
+	font-weight: 600;
+	letter-spacing: 0.12em;
+	color: #6F879E;
+	text-transform: uppercase;
+`
+
+const LogsContainer = styled.div`
+	flex: 1;
+	background: linear-gradient(135deg, #0A1628 0%, #12202F 100%);
+	border: 1px solid rgba(47, 111, 219, 0.15);
+	border-radius: 6px;
+	padding: 0.5rem;
+	overflow-y: auto;
+	overflow-x: hidden;
+
+	&::-webkit-scrollbar {
+		width: 6px;
+	}
+
+	&::-webkit-scrollbar-track {
+		background: rgba(15, 31, 46, 0.3);
+		border-radius: 3px;
+	}
+
+	&::-webkit-scrollbar-thumb {
+		background: rgba(47, 111, 219, 0.3);
+		border-radius: 3px;
+		transition: background 0.2s;
+	}
+
+	&::-webkit-scrollbar-thumb:hover {
+		background: rgba(47, 111, 219, 0.5);
+	}
+`
+
+const StyledLog = ({ content, index }) => {
 	let type = content.replace(/\].*/, "").slice(1).trim()
 	let date = content.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d{3}/)
 	if (date) {
@@ -284,76 +573,29 @@ const StyledLog = ({ content, style, index }) => {
 	content = content.replace(/\[.*?\]/, "").replace(/\(groundstation\)/, "[gs]").replace(/\(autopilot.*\)/, "[uav]")
 
 	return (
-		<StyledLogContainer index={index} style={{ ...style, height: style.height - (index === 0 ? 32 : 16), width: "99%" }} color={colors[type]}>
-			<StyledLogText color={colors[type]}>{content}</StyledLogText>
+		<StyledLogContainer index={index} color={colors[type] || colors.INFO}>
+			<StyledLogText>{content}</StyledLogText>
 		</StyledLogContainer>
 	)
 }
 
-const getTextWidth = (s) => {
-	const canvas = getTextWidth.canvas || (getTextWidth.canvas = document.createElement("canvas"))
-	const context = canvas.getContext("2d")
-	const metrics = context.measureText(s)
-	return metrics.width
-}
+const StyledLogContainer = styled.div`
+	border-left: 3px solid ${props => props.color};
+	padding-left: 0.5rem;
+	margin-bottom: 0.25rem;
+	transition: border-color 0.2s;
 
-const getTextHeight = (s) => {
-	const canvas = getTextWidth.canvas || (getTextWidth.canvas = document.createElement("canvas"))
-	const context = canvas.getContext("2d")
-	const metrics = context.measureText(s)
-	return metrics.height
-}
-
-const ScrollButton = styled(Button)`
-	margin: 0.25em 0 0 2.5em;
-	width: 75%;
-	height: 2em;
+	&:hover {
+		border-left-width: 4px;
+	}
 `
 
 const StyledLogText = styled.p`
-	color: ${props => props.color};
-	margin-bottom: 2px;
-`
-
-const StyledLogContainer = styled.div`
-	border-left: 5px solid ${props => props.color};
-	margin-top: ${props => props.index === 0 ? "16px" : "0"};
-	margin-left: 8px;
-	padding-left: 7px;
-	margin-bottom: 5px;
-`
-
-const StyledDiv = styled.div`
-	display: flex;
-	margin-bottom: 1em;
-`
-
-const StyledLogsContainer = styled.div`
-	background: ${dark};
-	margin-top: 0.5em;
-	padding: 0em 1em 1em 0.5em;
-	height: 100%;
-	width: 100%;
-	overflow-y: scroll;
-	overflow-x: hidden !important;
-	&::-webkit-scrollbar {
-		width: 20px;
-	}
-	&::-webkit-scrollbar-thumb {
-		background: ${darkest};
-		border: 6px solid rgba(0, 0, 0, 0);
-		border-radius: 1000px;
-		background-clip: padding-box;
-		width: 8px;
-	}
-	&::-webkit-scrollbar-thumb:hover {
-		background: ${darkdark};
-		background-clip: padding-box;
-		trasition: 0.5s;
-	}
-	&::-webkit-scrollbar-track {
-		border: 1px red;
-	}
+	color: rgba(143, 166, 188, 0.9);
+	margin: 0;
+	font-size: 0.7rem;
+	line-height: 1.3;
+	font-family: 'Monaco', 'Consolas', monospace;
 `
 
 export default Main

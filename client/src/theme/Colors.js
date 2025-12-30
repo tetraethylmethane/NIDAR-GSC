@@ -1,7 +1,7 @@
 // Blue-themed neutral base
 export const light     = "#F4F8FC"  // very light blue-tinted background
 export const dark      = "#E6EEF6"  // light blue-grey surface
-export const darker    = "#CFDCE8"  // card / divider background
+export const darker    = "transparent"  // card / divider background
 export const darkest  = "#8FA6BC"  // muted steel blue
 export const darkdark = "#6F879E"  // deep desaturated blue-grey
 

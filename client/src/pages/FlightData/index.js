@@ -133,17 +133,17 @@ const FlightData = () => {
 	})
 
 	return (
-		<div
+			<div
 			style={{
 				display: "grid",
-				padding: "0 1rem 0 1rem",
-				gridTemplateColumns: "37rem 100fr",
+				padding: "0 1rem",
+				gridTemplateColumns: "minmax(20rem, 37rem) 1fr",
 				gap: "1rem",
 				width: "100%",
-				height: "auto",
-				overflowY: "hidden"
+				overflow: "hidden",
 			}}
-		>
+			>
+
 			<TabBar>
 				<Main />
 				<FlightPlanToolbar
