@@ -144,9 +144,9 @@ class UAVHandler:
 
     wait_for = ("gps_0", "armed", "mode", "attitude")  # params
 
-    def __init__(self, : GroundStation, config: dict):
+    def __init__(self, gs: GroundStation, config: dict):
         self.logger = logging.getLogger("groundstation")
-        self.gs: GroundStation = 
+        self.gs: GroundStation = gs
         self.config = config
         self.port = self.config["uav"]["telemetry"]["port"]
         self.serial = self.config["uav"]["telemetry"]["serial"]
@@ -612,7 +612,7 @@ class UAVHandler:
 
 @decorate_all_functions(log, logging.getLogger("groundstation"))
 class DummyUAVHandler(UAVHandler):
-    def __init__(self, : GroundStation, config: dict):
+    def __init__(self, gs: GroundStation, config: dict):
         super().__init__(gs, config)
         assert self.port == ""
         self.mode = VehicleMode("AUTO")

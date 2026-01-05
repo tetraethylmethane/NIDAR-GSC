@@ -24,9 +24,9 @@ CONNECTION_EXCEPTIONS = (
 
 @decorate_all_functions(log, logging.getLogger("groundstation"))
 class ImageHandler:
-    def __init__(self, , config):
+    def __init__(self, gs, config):
         self.logger = logging.getLogger("groundstation")
-        self.gs: GroundStation = 
+        self.gs: GroundStation = gs
         self.config = config
         self.url = self.config["uav"]["images"]["url"]
         self.connected = False
