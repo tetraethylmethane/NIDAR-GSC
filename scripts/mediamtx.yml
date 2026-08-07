@@ -1,0 +1,67 @@
+# MediaMTX — video gateway for the NIDAR mission ground station.
+#
+# WHY THIS EXISTS
+# Rule 8.14 requires the GCS to display a live camera feed from EACH drone. The
+# original ground station served one MJPEG stream into an <img> tag. MJPEG at
+# 480p15 is roughly 1.5-2 Mbps per feed, so three of them would blow the link
+# budget the entire RF design rests on (2.5 Mbps offered load, >=13 dB margin at
+# 600 m). MediaMTX takes H.264 in over RTSP and serves WebRTC to the browser:
+# low latency, no plugins, no transcoding, and no internet.
+#
+# CODEC: H.264, NOT H.265.
+# The RF budget was written for H.265 at 0.60 Mbps per feed. Browser H.265
+# support is patchy and hardware-dependent -- it may simply not render on the
+# day. H.264 at ~0.9 Mbps each gives 2.7 Mbps of video plus 0.7 Mbps of
+# telemetry and detection metadata = 3.4 Mbps, about 24 % utilisation at MCS3.
+# Still well inside the deliberate low-MCS margin strategy, and worth 0.9 Mbps
+# to avoid a codec gamble.
+#
+# RUN:  ./mediamtx mediamtx.yml
+# Drone side (per aircraft, replace N and the GCS address):
+#   gst-launch-1.0 nvarguscamerasrc ! nvvidconv \
+#     ! video/x-raw,width=640,height=480,framerate=15/1 \
+#     ! nvv4l2h264enc bitrate=900000 insert-sps-pps=true idrinterval=15 \
+#     ! h264parse ! rtspclientsink location=rtsp://<gcs>:8554/droneN
+
+logLevel: info
+logDestinations: [stdout, file]
+logFile: mediamtx.log
+
+# Bind to the mesh interface only. Never 0.0.0.0 on a machine that might also
+# have a WAN interface up during testing.
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+webrtcAddress: :8889
+# ICE servers deliberately EMPTY. The defaults include public STUN servers,
+# which would be an outbound internet call during the mission -- a rule 8.4
+# breach. Everything here is same-subnet over the mesh, so host candidates are
+# sufficient and no STUN/TURN is needed.
+webrtcICEServers2: []
+webrtcLocalUDPAddress: :8189
+
+# Disable protocols we do not use, so nothing unexpected listens.
+hlsDisable: true
+rtmpDisable: true
+srtDisable: true
+
+# Read is unauthenticated on a closed mesh; publishing is restricted so a
+# stray source cannot occupy a drone's path mid-mission.
+authInternalUsers:
+  - user: any
+    ips: []
+    permissions:
+      - action: read
+  - user: drone
+    pass: nidar
+    ips: []
+    permissions:
+      - action: publish
+
+paths:
+  drone1:
+    source: publisher
+  drone2:
+    source: publisher
+  drone3:
+    source: publisher

@@ -8,7 +8,6 @@ import L from "leaflet"
 import Commands from "../commands.js"
 import PolylineDecorator from "../pages/FlightData/tabs/FlightPlan/PolylineDecorator.js"
 import RotatedMarker from "./RotatedMarker.js"
-import { useInterval } from "../util"
 import { Box, Button } from "components/UIElements"
 import { red } from "theme/Colors"
 
@@ -129,7 +128,7 @@ const FlightPlanMap = props => {
 			tileRef.current.setUrl("/map/{z}/{x}/{y}.png")
 		})
 
-		checkInternet()
+		setOfflineTiles()
 
 	}, [])
 
@@ -138,24 +137,19 @@ const FlightPlanMap = props => {
 	}, [props.getters.placementType, props.getters.placementMode])
 
 	
-	const checkInternet = () => {
-		if (navigator.onLine) {
-			fetch("https://g.co", {
-				mode: "no-cors"
-			}).then(() => {
-				tileRef.current.setUrl("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}")
-			}).catch(() => {
-				try {
-					tileRef.current.setUrl("/map/{z}/{x}/{y}.png")
-				} catch {}
-			})
-		} else {
-			try {
-				tileRef.current.setUrl("/map/{z}/{x}/{y}.png")
-			} catch {}
-		}
+	// NIDAR rule 8.4 prohibits internet connectivity during mission execution,
+	// and 8.17 prohibits relying on any external network. This previously polled
+	// https://g.co every 5 s and switched to online ArcGIS tiles whenever
+	// connectivity existed -- a direct breach that rule 8.6 (jury source
+	// inspection) would find. Tiles are now always served from the local cache
+	// populated by server/utils/slippy_map_getter.py.
+	//
+	// DO NOT reintroduce an online tile source. See ../../MISSION.md.
+	const setOfflineTiles = () => {
+		try {
+			tileRef.current.setUrl("/map/{z}/{x}/{y}.png")
+		} catch {}
 	}
-	useInterval(5000, checkInternet)
 
 	const handleKeyPress = (event, idx) => {
 		console.log(event.originalEvent.key)

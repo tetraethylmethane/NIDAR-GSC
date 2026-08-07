@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import os.path
 import traceback
 
@@ -32,6 +33,49 @@ CORS(app)
 
 app.register_blueprint(uav, url_prefix="/uav")
 app.register_blueprint(image, url_prefix="/image")
+
+# ---------------------------------------------------------------------------
+# NIDAR mission layer.
+#
+# MISSION_MODE controls the SYS-20 split. In mission mode the vehicle-command
+# blueprint is never imported, so there is no route capable of a retask,
+# waypoint change or drop command -- the actions rule 8.16 penalises at -50
+# each. Abort and recall remain in both builds, because 8.19 requires them.
+#
+# This is structural, not a feature flag: `mission_backend.dev_commands` is
+# imported inside a branch, so in mission mode the module is never loaded at
+# all. server/mission_tests/test_sys20.py asserts this against the live URL map.
+#
+#   MISSION_MODE=1  competition build   (default -- fail safe)
+#   MISSION_MODE=0  flight-test build   (arm, mode change, manual waypoints)
+# ---------------------------------------------------------------------------
+MISSION_MODE: bool = os.environ.get("MISSION_MODE", "1") != "0"
+
+from mission_backend.fleet import Fleet  # noqa: E402
+from mission_backend.api import safety, view  # noqa: E402
+
+fleet: Fleet = Fleet(drone_ids=config.get("drones", [1, 2, 3]))
+app.fleet = fleet
+app.config["MISSION_MODE"] = MISSION_MODE
+
+app.register_blueprint(view)
+app.register_blueprint(safety)
+
+if not MISSION_MODE:
+    from mission_backend.dev_commands import commands  # noqa: E402
+
+    app.register_blueprint(commands)
+    logging.getLogger("groundstation").warning(
+        "MISSION_MODE=0 -- vehicle command routes are ENABLED. "
+        "This build must not be used for the Final Mission."
+    )
+
+
+@app.before_request
+def _attach_fleet() -> None:
+    from flask import request
+
+    request.app_fleet = fleet  # type: ignore[attr-defined]
 
 logger: logging.Logger = logging.getLogger("groundstation")
 
