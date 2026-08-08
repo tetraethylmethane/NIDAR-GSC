@@ -131,7 +131,31 @@ on `/uav` and `/image` is refused with 403 before the view function runs.**
 
 This was found by the smoke test, not by review.
 
-## 6. Proving it works without aircraft
+## 6. Abort and recall are wired — but the radio is not
+
+`/api/safety/abort` no longer sets a flag and returns a green tick. It now
+transmits framed, sequenced commands through `safety_link/protocol.py` and
+collects per-aircraft acknowledgements, and `AbortPanel.js` shows **which**
+aircraft accepted. On a lossy 868 MHz link "abort sent" and "abort received" are
+different claims, and only the second one means an aircraft is coming home.
+
+**With no radio configured the endpoint returns 503 and `NO_RADIO`, not 200.**
+The panel renders a red *NOT IMPLEMENTED* banner telling the operator to use the
+safety pilot's transmitter. A green tick over a dead radio is worse than no
+button at all, because it stops someone reaching for the one thing that works.
+
+Set `safety_radio_host` in `config.json` when the radio bridge exists.
+
+Two further safeguards in the UI:
+
+- **Two-step arm-then-confirm**, with the arm lapsing after five seconds. These
+  are the buttons an operator reaches for under pressure, and a misclick during
+  a nominal mission ends it.
+- **This is the secondary path.** The primary is the safety receiver driving
+  `RC7_OPTION=4` (RTL) straight into the flight controller, which works with a
+  hung companion — and a hung companion is a reason to abort.
+
+## 7. Proving it works without aircraft
 
 ```bash
 python scripts/sim_mission.py --speed 8   # 3 drones, 6 survivors, deliveries

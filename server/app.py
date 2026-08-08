@@ -105,6 +105,10 @@ from mission_backend.api import safety, view  # noqa: E402
 fleet: Fleet = Fleet(drone_ids=config.get("drones", [1, 2, 3]))
 app.fleet = fleet
 app.config["MISSION_MODE"] = MISSION_MODE
+app.config["DRONE_IDS"] = tuple(config.get("drones", [1, 2, 3]))
+# Endpoint of the 868 MHz safety radio bridge. Absent -> the abort UI shows
+# NO RADIO instead of a green tick, which is the honest state.
+app.config["SAFETY_RADIO_HOST"] = config.get("safety_radio_host")
 
 app.register_blueprint(view)
 app.register_blueprint(safety)

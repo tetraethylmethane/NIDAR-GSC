@@ -21,6 +21,8 @@ from flask import Blueprint, Flask, current_app, jsonify, request
 
 from .fleet import Fleet
 from .kml import KMLError, check_against_brief, parse_boundary
+from .safety import SafetyLink
+from safety_link.protocol import Command
 
 # ---------------------------------------------------------------- mission view
 # Read-only. Everything rule 8.14 requires the GCS to display.
@@ -84,18 +86,50 @@ def load_boundary():
 safety = Blueprint("safety", __name__)
 
 
+def _link() -> SafetyLink:
+    """The safety link, created lazily so tests and offline tooling do not
+    open sockets simply by importing the app."""
+    link = getattr(current_app, "safety_link", None)
+    if link is None:
+        link = SafetyLink(drone_ids=current_app.config.get("DRONE_IDS", (1, 2, 3)),
+                          host=current_app.config.get("SAFETY_RADIO_HOST"))
+        current_app.safety_link = link
+    return link
+
+
+@safety.get("/api/safety/status")
+def safety_status():
+    """Per-aircraft acknowledgement state.
+
+    The UI polls this so the operator sees WHICH aircraft accepted. "Abort
+    sent" and "abort received" are different claims and only the second one
+    means the aircraft is coming home.
+    """
+    return jsonify(_link().status())
+
+
 @safety.post("/api/safety/abort")
 def abort():
-    """Mission abort — all aircraft hold, then sequenced recovery."""
+    """Mission abort — all aircraft hold, then sequenced recovery.
+
+    Permitted by 8.16 and required by 8.19. Transmits on the 868 MHz safety
+    radio, NOT the mesh: the reason to abort is often that the mesh failed.
+    """
     request.app_fleet.abort_requested = True
-    return jsonify({"ok": True, "action": "ABORT"})
+    st = _link().trigger(Command.ABORT)
+    # 503 when no radio is attached, so the UI cannot render a green tick for
+    # a command that was never transmitted.
+    return jsonify({"ok": st["configured"], "action": "ABORT", **st}), (
+        200 if st["configured"] else 503)
 
 
 @safety.post("/api/safety/recall")
 def recall():
-    """Emergency recall — immediate RTH on the 868 MHz link."""
+    """Emergency recall — immediate RTH."""
     request.app_fleet.recall_requested = True
-    return jsonify({"ok": True, "action": "RECALL"})
+    st = _link().trigger(Command.RECALL)
+    return jsonify({"ok": st["configured"], "action": "RECALL", **st}), (
+        200 if st["configured"] else 503)
 
 
 def create_app(mission_mode: bool = True, fleet: Fleet | None = None) -> Flask:

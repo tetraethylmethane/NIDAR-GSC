@@ -155,11 +155,76 @@ def test_fleet_endpoint_serves_every_8_14_field(app_module):
         assert key in body, f"rule 8.14 requires {key}"
 
 
-def test_abort_and_recall_respond_on_the_live_app(app_module):
+def test_abort_reports_no_radio_rather_than_success(app_module):
+    """A safety control that reports success when it transmitted nothing is
+    worse than no control at all: it stops the operator reaching for the
+    safety pilot's transmitter.
+
+    With no SAFETY_RADIO_HOST configured, abort must return 503 and NO_RADIO,
+    not 200 and a green tick.
+    """
     client = app_module.app.test_client()
-    assert client.post("/api/safety/abort").status_code == 200
-    assert client.post("/api/safety/recall").status_code == 200
+    r = client.post("/api/safety/abort")
+    assert r.status_code == 503
+    body = r.get_json()
+    assert body["ok"] is False
+    assert body["state"] == "NO_RADIO"
+    assert body["configured"] is False
+    # the intent is still recorded for the mission log
     assert app_module.fleet.abort_requested is True
+
+
+def test_recall_reports_no_radio_too(app_module):
+    r = app_module.app.test_client().post("/api/safety/recall")
+    assert r.status_code == 503
+    assert r.get_json()["state"] == "NO_RADIO"
+
+
+def test_safety_status_is_pollable(app_module):
+    body = app_module.app.test_client().get("/api/safety/status").get_json()
+    for key in ("state", "configured", "acknowledged", "missing", "drones"):
+        assert key in body
+    assert body["drones"] == [1, 2, 3]
+
+
+def test_abort_transmits_when_a_radio_is_configured():
+    """With a radio endpoint set, abort must actually send frames and report
+    which aircraft have NOT acknowledged."""
+    import socket
+
+    from mission_backend.api import create_app
+    from mission_backend.fleet import Fleet
+
+    # a UDP socket standing in for the radio bridge
+    radio = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    radio.bind(("127.0.0.1", 0))
+    radio.settimeout(2.0)
+    port = radio.getsockname()[1]
+
+    app = create_app(mission_mode=True, fleet=Fleet())
+    app.config["SAFETY_RADIO_HOST"] = "127.0.0.1"
+    app.config["DRONE_IDS"] = (1, 2, 3)
+    # point the link at our stand-in radio
+    from mission_backend.safety import SafetyLink
+
+    app.safety_link = SafetyLink(drone_ids=(1, 2, 3), host="127.0.0.1",
+                                 port=port, rx_port=0)
+    try:
+        r = app.test_client().post("/api/safety/abort")
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body["ok"] is True
+        assert body["state"] in ("SENDING", "ACKNOWLEDGED")
+        assert body["missing"] == [1, 2, 3], "nothing has acknowledged yet"
+
+        data, _ = radio.recvfrom(256)          # a real frame must arrive
+        from safety_link.protocol import Command, decode
+
+        f = decode(data)
+        assert f.command is Command.ABORT
+    finally:
+        app.safety_link.stop()
+        radio.close()
 
 
 def test_boundary_upload_round_trips_on_the_live_app(app_module):
