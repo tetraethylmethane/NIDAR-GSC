@@ -88,9 +88,22 @@ async function loadPuppeteer() {
 
 		if (i % Math.round(FPS * 5) === 0) {
 			try {
+				/* AbortController, because the backend can go away mid-run --
+				 * it did, and an in-page fetch with no timeout then hangs the
+				 * whole capture loop. A recorder whose job is to catch things
+				 * that only break over time must not itself stop recording
+				 * when one of them does. */
 				const snap = await page.evaluate(async b => {
-					const r = await fetch(`${b}/api/fleet`)
-					return r.ok ? r.json() : null
+					const ac = new AbortController()
+					const t = setTimeout(() => ac.abort(), 2000)
+					try {
+						const r = await fetch(`${b}/api/fleet`, { signal: ac.signal })
+						return r.ok ? await r.json() : null
+					} catch (e) {
+						return null
+					} finally {
+						clearTimeout(t)
+					}
 				}, BACKEND)
 				if (snap) {
 					const p = snap.progress || {}
