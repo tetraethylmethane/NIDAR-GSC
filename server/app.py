@@ -7,8 +7,6 @@ import traceback
 from flask import Flask, jsonify, send_file, Response
 from flask_cors import CORS
 
-from apps import uav, image
-from groundstation import GroundStation
 from utils.errors import (
     InvalidRequestError,
     InvalidStateError,
@@ -38,9 +36,6 @@ app: Flask = Flask(__name__)
 app.config["JSONIFY_PRETTYPRINT_REGULAR"] = True
 CORS(app)
 
-app.register_blueprint(uav, url_prefix="/uav")
-app.register_blueprint(image, url_prefix="/image")
-
 # ---------------------------------------------------------------------------
 # NIDAR mission layer.
 #
@@ -58,16 +53,63 @@ app.register_blueprint(image, url_prefix="/image")
 # ---------------------------------------------------------------------------
 MISSION_MODE: bool = os.environ.get("MISSION_MODE", "1") != "0"
 
-# The legacy /uav blueprint predates NIDAR and exposes 31 routes, including
-# /uav/commands/insert, /uav/commands/jump, /uav/arm, /uav/mode/set and
-# /uav/params/set -- precisely the actions rule 8.16 treats as manual
-# intervention at -50 points each. Splitting the new mission blueprint was not
-# enough on its own; these were still reachable in a mission build.
+# ---------------------------------------------------------------------------
+# The legacy layer -- and why a mission build does not load it at all.
 #
-# They are kept registered because the legacy pages read telemetry through
-# /uav/quick and /uav/stats, but in mission mode every state-changing method is
-# refused before the view function runs. Verified by
-# mission_tests/test_app_smoke.py against the live URL map.
+# `apps.uav` -> `handlers` -> `handlers/uav.py` -> `dronekit`. DroneKit is
+# unmaintained and does `collections.MutableMapping`, which moved to
+# `collections.abc` in Python 3.10, so on any current interpreter that import
+# chain raises before Flask is even constructed. The mission server simply
+# could not start.
+#
+# Pinning Python 3.9 would "fix" it, and would be the wrong fix. In a mission
+# build the legacy UAVHandler is REDUNDANT: mavlink_ingest.py already carries
+# position, mode, battery and GNSS fix for all three aircraft over pymavlink,
+# which DroneKit cannot do at all (it is single-vehicle by construction). So
+# the mission build does not import it, and DroneKit is absent from the process
+# rather than merely unused. mission_tests/test_app_smoke.py asserts
+# `"dronekit" not in sys.modules` after importing this file.
+#
+# It also settles SYS-20 more strongly than the 403 guard below did. That
+# blueprint exposed 31 routes including /uav/commands/insert, /uav/commands/jump,
+# /uav/arm, /uav/mode/set and /uav/params/set -- precisely the actions rule 8.16
+# treats as manual intervention at -50 each. Refusing them is good; not having
+# them is better.
+# ---------------------------------------------------------------------------
+#
+# KNOWN LIMITATION, recorded rather than hidden: the DEV build still needs
+# DroneKit, so MISSION_MODE=0 still requires Python 3.9. mission_backend/
+# dev_commands.py is a route stub that acknowledges commands without sending
+# them, so the real arm/mode/waypoint capability is still the legacy handler.
+# That is tolerable because the dev build is not the scored artefact and
+# QGroundControl or Mission Planner does the same job better during bring-up.
+# It is NOT tolerable to discover it from a traceback about MutableMapping, so
+# the failure is caught and explained below.
+# ---------------------------------------------------------------------------
+if not MISSION_MODE:
+    try:
+        from apps import uav, image                   # noqa: E402
+        from groundstation import GroundStation       # noqa: E402
+    except Exception as exc:  # pragma: no cover - depends on interpreter
+        raise SystemExit(
+            f"\nThe DEV build (MISSION_MODE=0) could not load the legacy "
+            f"DroneKit layer:\n    {type(exc).__name__}: {exc}\n\n"
+            f"DroneKit is unmaintained and cannot be imported on Python "
+            f">= 3.10 (collections.MutableMapping). Options:\n"
+            f"  - Run the MISSION build instead:  MISSION_MODE=1 python app.py\n"
+            f"    It does not use DroneKit and runs on any current Python.\n"
+            f"  - For aircraft bring-up, use QGroundControl or Mission Planner\n"
+            f"    against mavlink-router (scripts/mavlink-router.conf).\n"
+            f"  - Only if you really need these legacy pages: Python 3.9.\n"
+        ) from exc
+
+    app.register_blueprint(uav, url_prefix="/uav")
+    app.register_blueprint(image, url_prefix="/image")
+
+# Defence in depth. The routes are gone in a mission build, so this normally has
+# nothing to refuse -- but a 403 saying WHY is a better answer than a bare 404,
+# which invites someone to go looking for the path that still works. It also
+# means re-registering the blueprint by mistake cannot silently re-open them.
 _MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 
 
@@ -165,7 +207,15 @@ if os.environ.get("NIDAR_INGEST", "1") != "0":
 
 logger: logging.Logger = logging.getLogger("groundstation")
 
-gs: GroundStation = GroundStation(config=config)
+# The legacy GroundStation opens a DroneKit link to ONE aircraft and spawns a
+# polling thread for it. In a mission build there is nothing for it to do -- the
+# fleet has three aircraft and they arrive over mavlink_ingest -- so it is not
+# constructed, and `app.gs` stays None. Anything that reaches for it in mission
+# mode is a bug in the caller, and should fail loudly rather than be papered
+# over with a stub that returns plausible-looking zeros.
+gs = None
+if not MISSION_MODE:
+    gs = GroundStation(config=config)
 app.gs = gs
 app.gs_config = config
 

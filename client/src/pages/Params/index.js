@@ -61,6 +61,22 @@ const Params = () => {
 	const [parametersSave, setParametersSave] = useState(INITIAL_PARAMS.slice())
 	const [downloaded, setDownloaded] = useState(false)
 
+	/* DEV BUILD ONLY. This page writes flight-controller parameters. Rule 8.16
+	 * makes that a -50 manual intervention during the mission, and unlike a
+	 * waypoint change a bad parameter can leave the aircraft unflyable.
+	 *
+	 * Hiding the nav link is not enough on its own -- /params is a URL, and
+	 * browsers remember URLs. Defaults to TRUE so a failed fetch shows the
+	 * refusal rather than the editor. */
+	const [missionMode, setMissionMode] = useState(true)
+	useEffect(() => {
+		httpget("/api/fleet", res => {
+			if (res && res.data && typeof res.data.mission_mode === "boolean") {
+				setMissionMode(res.data.mission_mode)
+			}
+		})
+	}, [])
+
 	const isEnabled = (param) => {
 		if (param.includes("_ENABLE")) {
 			return true
@@ -142,11 +158,40 @@ const Params = () => {
 
 	const [activeSize, setActiveSize] = useState(35)
 
-	useInterval(1000, () => {
+	/* Null delay = do not poll. In a mission build /uav is not registered, so
+	 * this would otherwise hit a dead path once a second for the whole
+	 * mission. */
+	useInterval(missionMode ? null : 1000, () => {
 		httpget("/uav/params/downloaded", response => {
 			setDownloaded(response.data.result)
 		})
 	})
+
+	if (missionMode) {
+		return (
+			<div style={{
+				padding: "3rem",
+				fontFamily: "monospace",
+				color: "#ff8a8a",
+				lineHeight: 1.6,
+			}}>
+				<h2 style={{ margin: "0 0 0.6rem" }}>Not available in a mission build</h2>
+				<p style={{ maxWidth: "38rem", color: "#bbb" }}>
+					This page reads and writes flight-controller parameters. Rule
+					8.16 makes a parameter change during the mission a &minus;50
+					manual intervention, and a bad value can leave the aircraft
+					unflyable.
+				</p>
+				<p style={{ maxWidth: "38rem", color: "#bbb" }}>
+					Set <code>MISSION_MODE=0</code> on the ground-station backend
+					for flight testing, or set parameters with QGroundControl.
+					Competition parameter files live in{" "}
+					<code>firmware/ardupilot-params/</code>.
+				</p>
+				<p><a href="/" style={{ color: "#8ff0b0" }}>&larr; Back to Flight Data</a></p>
+			</div>
+		)
+	}
 
 	return (
 		<ParametersContext.Provider value={[parameters, setParameters]}>

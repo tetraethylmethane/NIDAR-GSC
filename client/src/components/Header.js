@@ -270,7 +270,13 @@ const Header = ({ Aarmed = "", Amode = "", setAmode = () => {} }) => {
 			<NavCenter>
 				<NavLinks>
 					<StyledLink href="/">Flight Data</StyledLink>
-					<StyledLink href="/params">Params</StyledLink>
+					{/* The Params page reads and WRITES flight-controller
+					  * parameters. Rule 8.16 makes a parameter change during the
+					  * mission a -50 manual intervention, and unlike a waypoint
+					  * it can also render the aircraft unflyable. The page itself
+					  * refuses to load in a mission build; hiding the link keeps
+					  * anyone from getting that far. */}
+					{!missionMode && <StyledLink href="/params">Params</StyledLink>}
 				</NavLinks>
 					<ArmStatusContainer>
 						<StatusBadge armed={!Aarmed.includes("DISARMED")}>

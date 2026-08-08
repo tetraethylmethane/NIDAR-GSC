@@ -13,7 +13,13 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 
+/* mission_mode defaults TRUE, which is the fail-safe direction: before the
+ * first poll returns -- and after the backend goes away -- the UI hides every
+ * command control rather than showing it. A control that appears during the
+ * half second before we know better is a control someone can click, and rule
+ * 8.16 charges -50 for the click regardless of what the server does with it. */
 const EMPTY = {
+	mission_mode: true,
 	vehicles: {},
 	regions: {},
 	phases: {},
@@ -45,6 +51,10 @@ const useFleet = (backend, intervalMs = 500) => {
 			if (!res.ok) throw new Error(`HTTP ${res.status}`)
 			const data = await res.json()
 			if (!alive.current) return
+			/* Only an explicit false unlocks the dev controls. A snapshot that
+			 * omits the field -- an older backend, a proxy that mangled it --
+			 * must not read as "dev build" simply because undefined is falsy. */
+			data.mission_mode = data.mission_mode !== false
 			setFleet(data)
 			setOnline(true)
 			setFailures(0)

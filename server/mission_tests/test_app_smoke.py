@@ -3,19 +3,21 @@
 The mission layer had unit tests but the WIRING into app.py was unverified: it
 compiled, and nothing more. This closes that gap without needing an aircraft.
 
-DroneKit is stubbed, and that is not a shortcut. DroneKit is unmaintained,
-single-vehicle, and genuinely broken on Python >= 3.10 (it does
-`collections.MutableMapping`, which moved to `collections.abc` in 3.10), so it
-cannot be imported on a current interpreter at all. The mission path
-deliberately does not use it — `mavlink_ingest.py` speaks pymavlink directly —
-so stubbing the legacy handler isolates exactly what we want to test: that the
-mission layer is correctly wired into the app.
+NOTHING IS STUBBED. That is the point of this file now.
 
-If this passes, `MISSION_MODE=1 python app.py` will start.
+This test used to install a fake `dronekit` module so app.py could be imported
+at all, because `apps.uav` -> `handlers/uav.py` -> `dronekit`, and DroneKit does
+`collections.MutableMapping` — moved to `collections.abc` in Python 3.10. The
+stub let the test pass on 3.12 while the real server still could not boot on
+3.12, which is the worst kind of green tick: it tested a program nobody runs.
+
+The mission build now does not import the legacy layer at all, so this file
+imports app.py exactly as `python app.py` does, on whatever interpreter CI is
+running, with no stub in sight. `test_dronekit_is_not_in_the_mission_process`
+asserts the absence directly.
 """
 import os
 import sys
-import types
 
 import pytest
 
@@ -26,38 +28,11 @@ sys.path.insert(0, SERVER)
 pytest.importorskip("flask_cors", reason="flask-cors not installed")
 
 
-def _stub_dronekit():
-    """Minimal DroneKit surface so the legacy handlers import on Python 3.12."""
-    if "dronekit" in sys.modules:
-        return
-    dk = types.ModuleType("dronekit")
-
-    class _V:
-        def __getattr__(self, _n):
-            return None
-
-    # Exactly the names handlers/uav.py imports.
-    dk.connect = lambda *a, **k: _V()
-    dk.Vehicle = _V
-    dk.Channels = _V
-    dk.VehicleMode = lambda m: m
-    dk.Command = object
-    dk.CommandSequence = object
-    dk.LocationGlobal = lambda *a, **k: None
-    dk.LocationGlobalRelative = lambda *a, **k: None
-    dk.mavutil = types.SimpleNamespace()
-    sys.modules["dronekit"] = dk
-
-
 @pytest.fixture(scope="module")
 def app_module(tmp_path_factory):
     """Import app.py the way `python app.py` does, minus the sockets."""
-    _stub_dronekit()
     cwd = os.getcwd()
     os.chdir(SERVER)
-    # config.json is read relative to cwd. Write a test config with NO telemetry
-    # port, so GroundStation selects DummyUAVHandler and never tries to open a
-    # serial link -- we are testing the mission wiring, not the legacy handler.
     import json
     import shutil
 
@@ -65,7 +40,6 @@ def app_module(tmp_path_factory):
     if existing:
         shutil.copy("config.json", "config.json.smokebak")
     cfg = json.load(open("sample.config.json", encoding="utf-8"))
-    cfg["uav"]["telemetry"]["port"] = ""   # "" -> DummyUAVHandler (it asserts == "")
     cfg["drones"] = [1, 2, 3]
     with open("config.json", "w", encoding="utf-8") as fh:
         json.dump(cfg, fh)
@@ -76,6 +50,7 @@ def app_module(tmp_path_factory):
         for mod in [m for m in sys.modules if m.startswith(("app", "groundstation",
                                                             "apps", "handlers"))]:
             del sys.modules[mod]
+        sys.modules.pop("dronekit", None)
         import app as app_mod
 
         yield app_mod
@@ -85,6 +60,39 @@ def app_module(tmp_path_factory):
         elif made:
             os.remove("config.json")
         os.chdir(cwd)
+
+
+def test_dronekit_is_not_in_the_mission_process(app_module):
+    """The reason the mission server could not start on a current interpreter.
+
+    DroneKit is unmaintained, single-vehicle by construction, and unimportable
+    on Python >= 3.10. It is also redundant here: mavlink_ingest.py already
+    carries position, mode, battery and GNSS fix for all THREE aircraft over
+    pymavlink, which DroneKit cannot do at all.
+
+    Asserting absence rather than non-use is deliberate. "We do not call it" is
+    a claim about intent; "it is not in sys.modules" is a fact about the running
+    process, and it is the one that decides whether the server boots.
+    """
+    assert "dronekit" not in sys.modules, (
+        "dronekit was imported by the mission build — the server will not "
+        "start on Python >= 3.10"
+    )
+
+
+def test_legacy_groundstation_is_not_constructed_in_mission_mode(app_module):
+    """It opens a DroneKit link to ONE aircraft and spawns a polling thread for
+    it. In a mission build there are three aircraft and they arrive over
+    mavlink_ingest, so there is nothing for it to do."""
+    assert app_module.app.gs is None
+
+
+def test_python_version_is_one_the_mission_build_actually_supports():
+    """Guard against the fix regressing into a Python 3.9 pin."""
+    assert sys.version_info >= (3, 10), (
+        "these tests are meant to run on the interpreter the mission server "
+        "runs on; pinning 3.9 to keep DroneKit is the fix we rejected"
+    )
 
 
 def test_app_imports_and_has_a_flask_app(app_module):
@@ -123,28 +131,41 @@ def test_no_new_command_route_in_the_live_app(app_module):
             )
 
 
+def test_the_legacy_blueprint_is_not_registered_at_all(app_module):
+    """Stronger than the 403 guard this replaces.
+
+    The legacy /uav blueprint predates NIDAR and exposes 31 routes, including
+    /uav/commands/insert and /uav/commands/jump — each a -50 manual
+    intervention under rule 8.16. Refusing them at request time was correct but
+    left them in the URL map, one blueprint registration away from being live
+    again. In a mission build they are not there to refuse.
+    """
+    rules = [r.rule for r in app_module.app.url_map.iter_rules()]
+    legacy = [r for r in rules if r.startswith(("/uav", "/image"))]
+    assert legacy == [], f"mission build still exposes legacy routes: {legacy}"
+
+
 @pytest.mark.parametrize("path", [
     "/uav/arm", "/uav/disarm", "/uav/commands/insert", "/uav/commands/jump",
     "/uav/commands/clear", "/uav/mode/set", "/uav/params/setmultiple",
     "/uav/sethome", "/uav/restart",
 ])
-def test_legacy_command_routes_are_refused_in_mission_mode(app_module, path):
-    """The legacy /uav blueprint predates NIDAR and still exposes 31 routes,
-    including waypoint insert and jump. Splitting the new blueprint did not
-    remove them; this guard does."""
+def test_legacy_command_paths_are_refused_with_a_reason_not_a_404(app_module, path):
+    """Defence in depth, and better manners than a bare 404.
+
+    The routes no longer exist, so Flask would 404 — but a 404 reads as "wrong
+    path, try another one", which is exactly the wrong hint to give someone
+    hunting for a control during a scored mission. The before_request guard
+    matches on path prefix rather than on a route, so it still answers 403 with
+    the rule number. It also means re-registering the blueprint by mistake
+    cannot silently re-open the commands.
+    """
     r = app_module.app.test_client().post(path, json={})
     assert r.status_code == 403, (
         f"{path} returned {r.status_code} in mission mode — rule 8.16 makes "
         f"this a -50 manual intervention"
     )
     assert "mission mode" in r.get_json()["title"].lower()
-
-
-def test_legacy_telemetry_reads_still_work_in_mission_mode(app_module):
-    """The guard must block commands without breaking the telemetry the
-    existing pages depend on."""
-    r = app_module.app.test_client().get("/uav/quick")
-    assert r.status_code != 403
 
 
 def test_fleet_endpoint_serves_every_8_14_field(app_module):

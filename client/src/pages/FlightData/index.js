@@ -117,7 +117,19 @@ const FlightData = () => {
 		water: ["Drop", "Bottle Drop Location"]
 	}
 
-	useInterval(500, () => {
+	/* One fleet poll for the whole page. The merge happens server-side, which
+	 * is what satisfies the "single unified operator interface" criterion
+	 * (4D-4, 50 binary points) rather than three panels side by side. */
+	const { fleet: missionFleet, online: fleetOnline } = useFleet(getUrl())
+	const droneIds = Object.keys(missionFleet.vehicles || {}).map(Number)
+	const missionMode = missionFleet.mission_mode !== false
+
+	/* Legacy single-aircraft telemetry. In a mission build this endpoint does
+	 * not exist -- app.py does not register the /uav blueprint, because that
+	 * import chain pulls in DroneKit, which is single-vehicle by construction
+	 * and unimportable on Python >= 3.10. Everything it fed is superseded by
+	 * MissionLayers, which draws all three aircraft from the fleet snapshot. */
+	useInterval(missionMode ? null : 500, () => {
 		httpget("/uav/quick", response => {
 			setUav({
 				latlng: {
@@ -136,12 +148,6 @@ const FlightData = () => {
 			})
 		})
 	})
-
-	/* One fleet poll for the whole page. The merge happens server-side, which
-	 * is what satisfies the "single unified operator interface" criterion
-	 * (4D-4, 50 binary points) rather than three panels side by side. */
-	const { fleet: missionFleet, online: fleetOnline } = useFleet(getUrl())
-	const droneIds = Object.keys(missionFleet.vehicles || {}).map(Number)
 
 	return (
 			<div
@@ -168,17 +174,37 @@ const FlightData = () => {
 				<MissionStatus fleet={missionFleet} online={fleetOnline} />
 				{/* Rule 8.19: mission abort and emergency recall. */}
 				<AbortPanel />
-			<TabBar>
-				<Main />
-				<FlightPlanToolbar
-					display={display}
-					getters={getters}
-					setters={setters}
-					tabName={"Map"}
-				/>
-				<Servo />
-				{/*<Logs />*/}
-			</TabBar>
+				{/* DEV BUILD ONLY.
+				  *
+				  * Every tab below is a rule 8.16 manual intervention if used
+				  * during the Final Mission, at -50 points each: Main sets
+				  * flight mode and inserts a LAND command, FlightPlanToolbar
+				  * writes missions to the aircraft, Servo drives the payload
+				  * release.
+				  *
+				  * The server already refuses all of it -- the routes are not
+				  * even registered in a mission build -- so nothing here can
+				  * break a rule. That is not the argument for removing them.
+				  * The argument is that a control which silently does nothing
+				  * is its own hazard: under pressure someone clicks Write To,
+				  * sees no error, and believes the aircraft took it. The same
+				  * reasoning removed waypoint insertion from the map.
+				  *
+				  * In a mission build the left column is mission status and
+				  * abort, and nothing else. */}
+				{!missionMode && (
+					<TabBar>
+						<Main />
+						<FlightPlanToolbar
+							display={display}
+							getters={getters}
+							setters={setters}
+							tabName={"Map"}
+						/>
+						<Servo />
+						{/*<Logs />*/}
+					</TabBar>
+				)}
 			</div>
 			<FlightPlanMap
 				display={display}

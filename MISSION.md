@@ -39,7 +39,32 @@ Tiles now always come from `/map/{z}/{x}/{y}.png`, populated ahead of time by
 > region around the venue **weeks in advance** — not for the search box on the
 > day.
 
-`scripts/check-no-network.sh` fails the build if an outbound call reappears.
+```bash
+cd server
+python utils/slippy_map_getter.py --center LAT,LON --radius-km 10 --zoom 10-18 --dry-run
+python utils/slippy_map_getter.py --center LAT,LON --radius-km 10 --zoom 10-16 --yes
+python utils/slippy_map_getter.py --verify     # run this again on the morning
+```
+
+The getter had a defect that would have surfaced at the worst possible moment:
+it wrote the response body to a `.png` **without ever looking at it**, so a 404
+page or a rate-limit body landed on disk as a plausible tile — and because the
+resume check was `os.path.isfile`, it was skipped forever after. The cache would
+have reported complete, errored never, and rendered grey squares on mission day.
+Every tile is now checked by magic number before it is written, `--verify`
+re-checks what is already cached, and an **empty** cache directory fails
+verification rather than passing (the directory is created by the download
+itself, so "it exists" proves nothing).
+
+One trap worth knowing: ArcGIS answers a `.png` request with **JPEG** data.
+Validating a PNG signature specifically — the obvious way to write the check —
+rejects every real tile and caches nothing at all, which is a worse failure than
+the one being fixed because it is silent and total.
+
+`scripts/check-no-network.sh` fails the build if an outbound call reappears in
+`client/src`. It does not scan `server/utils/slippy_map_getter.py`, which is the
+one place in the repo that is *supposed* to touch the internet — weeks before
+the competition, never during it.
 
 ## 2. Mission mode — the SYS-20 split
 
@@ -116,20 +141,65 @@ candidates suffice.
 
 ---
 
-## 5. Legacy /uav routes are blocked in mission mode
+## 5. The legacy layer is not loaded in a mission build
 
 Splitting the new blueprint was **not enough on its own.** The legacy `/uav`
 blueprint predates NIDAR and exposes 31 routes, including
 `/uav/commands/insert`, `/uav/commands/jump`, `/uav/arm`, `/uav/mode/set` and
 `/uav/params/set` — precisely the −50 actions under rule 8.16. They were still
-reachable in a mission build.
+reachable in a mission build. A 403 guard was added first; that was found by the
+smoke test, not by review.
 
-They stay registered, because the existing pages read telemetry through
-`/uav/quick` and `/uav/stats`, but in mission mode **every state-changing method
-on `/uav` and `/image` is refused with 403 before the view function runs.**
-`mission_tests/test_app_smoke.py` asserts this against nine specific paths.
+**The routes are now gone entirely.** In mission mode `app.py` does not import
+`apps.uav`, `apps.image` or `groundstation`, so the blueprint is never
+registered and `app.gs` is `None`. Refusing a command is good; not having one is
+better.
 
-This was found by the smoke test, not by review.
+This also fixed something worse. That import chain is
+`apps.uav` → `handlers/uav.py` → `dronekit`, and DroneKit does
+`collections.MutableMapping`, which moved to `collections.abc` in **Python
+3.10** — so *the mission server could not start on any current interpreter at
+all.* The smoke test had been installing a fake `dronekit` module to get around
+it, which meant the tests passed on 3.12 while the real program did not run on
+3.12: a green tick over a server nobody could boot.
+
+Pinning Python 3.9 would have been the wrong fix. In a mission build the legacy
+`UAVHandler` is **redundant** — `mavlink_ingest.py` already carries position,
+mode, battery and GNSS fix for all three aircraft over pymavlink, which DroneKit
+cannot do at all, being single-vehicle by construction. Nothing is stubbed in
+the smoke test any more, and `test_dronekit_is_not_in_the_mission_process`
+asserts `"dronekit" not in sys.modules` after importing `app.py`. Absence is a
+fact about the running process; "we do not call it" is only a claim about
+intent.
+
+The 403 guard stays as defence in depth. It matches on path prefix rather than
+on a route, so a legacy path answers 403-with-a-reason instead of a bare 404 —
+a 404 reads as *"wrong path, try another"*, the worst hint to give someone
+hunting for a control mid-mission — and re-registering the blueprint by mistake
+cannot silently reopen the commands.
+
+> **Known limitation, recorded rather than hidden.** The **dev** build
+> (`MISSION_MODE=0`) still needs DroneKit and therefore still needs Python 3.9;
+> `mission_backend/dev_commands.py` is a route stub that acknowledges commands
+> without sending them. This is tolerable because the dev build is not the
+> scored artefact and QGroundControl does bring-up better anyway. `app.py`
+> catches the import failure and explains all of this instead of raising a
+> traceback about `MutableMapping`.
+
+## 5a. The dev UI does not render in a mission build
+
+`Servo`, `FlightPlanToolbar`, `Main` and the `Params` page still shipped in the
+mission build. The server refused them, so no rule was broken — that is not the
+argument. **A control that silently does nothing is its own hazard:** under
+pressure someone clicks *Write To*, sees no error, and believes the aircraft
+took it. The same reasoning removed waypoint insertion from the map.
+
+In a mission build the left column is **mission status and abort, and nothing
+else**. The `Params` page refuses to render and says why, because `/params` is
+a URL and browsers remember URLs. The client learns the mode from
+`mission_mode` on the `/api/fleet` snapshot, which defaults to **true** in every
+path — before the first poll returns, after the backend goes away, and when the
+field is missing — so only an explicit `false` unlocks anything.
 
 ## 6. Abort and recall are wired — but the radio is not
 
@@ -174,7 +244,8 @@ Verified end to end: 5287 datagrams, 0 rejected, 6 survivors, correct dedup.
 ## Before every competition build
 
 ```bash
-cd server && MISSION_MODE=1 python -m pytest mission_tests -q   # 86 tests
+cd server && MISSION_MODE=1 python -m pytest mission_tests -q   # 107 tests
+python utils/slippy_map_getter.py --verify                      # tiles intact
 ./scripts/check-no-network.sh                                   # no outbound calls
 ```
 
@@ -185,3 +256,4 @@ Then confirm, with the machine's network interfaces **physically down**:
 3. `/api/fleet` returns all three drones
 4. Abort and recall respond
 5. No route exists that can insert a waypoint
+6. No dev control is on screen — no tab bar, no Params link
