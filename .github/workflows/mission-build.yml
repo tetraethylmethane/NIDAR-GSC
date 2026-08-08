@@ -89,3 +89,57 @@ jobs:
         run: npm run build
         env:
           CI: 'false'   # warnings must not fail the build; errors still do
+
+  # A real browser on the real page. This is what found the arm badge reading
+  # ARMED with nothing armed, a missing route answering 500, and the map sitting
+  # 2000 km from its own tile cache -- none of which jsdom can see, because
+  # every component involved was behaving exactly as written.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: |
+          pip install flask flask-cors pymavlink requests
+          cd client && npm install --legacy-peer-deps --no-audit --no-fund
+          npm install --no-save puppeteer
+      - name: Build the client
+        working-directory: client
+        run: npm run build
+        env:
+          CI: 'false'
+      - name: Start the backend and the mission simulator
+        run: |
+          cd server
+          cp sample.config.json config.json
+          MISSION_MODE=1 NIDAR_INGEST=1 python app.py > /tmp/server.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:5000/api/fleet >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:5000/api/fleet >/dev/null || {
+            echo "backend did not start"; cat /tmp/server.log; exit 1; }
+          cd ..
+          python scripts/sim_mission.py --speed 8 > /tmp/sim.log 2>&1 &
+      - name: Serve the built client
+        working-directory: client
+        run: npx --yes serve -s build -l 3000 > /tmp/serve.log 2>&1 &
+      - name: Check the page an operator would see
+        run: |
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:3000 >/dev/null && break
+            sleep 1
+          done
+          node scripts/browser_check.js \
+            --client http://127.0.0.1:3000 --backend http://127.0.0.1:5000 --hold 12
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-check
+          path: browser-check/
