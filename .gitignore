@@ -158,3 +158,6 @@ odlc.json
 /browser-check/
 serve.out
 serve.err
+
+# record_mission.js output (frames + mp4)
+/mission-recording/
