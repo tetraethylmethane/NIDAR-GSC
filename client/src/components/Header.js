@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react"
 import { Row, Modal, ModalBody, ModalHeader } from "components/Containers"
 import styled from "styled-components"
 import { Box, Button, Dropdown } from "./UIElements"
-import { getUrl, setUrl, httppost } from "../backend"
+import { getUrl, setUrl, httpget, httppost } from "../backend"
 import { ReactComponent as RawUAV } from "icons/uav.svg"
 import { ReactComponent as RawUAVbw } from "icons/uav-bw.svg"
 
@@ -253,23 +253,40 @@ const ConnectionButton = (props) => {
 }
 
 const Header = ({ Aarmed = "", Amode = "", setAmode = () => {} }) => {
+	/* Mission builds hide every command control. Defaults to TRUE so a failed
+	 * fetch produces the safe UI, not the dangerous one. */
+	const [missionMode, setMissionMode] = useState(true)
+	useEffect(() => {
+		httpget("/api/fleet", res => {
+			if (res && res.data && typeof res.data.mission_mode === "boolean") {
+				setMissionMode(res.data.mission_mode)
+			}
+		})
+	}, [])
+
 	return (
 		<NavContainer>
-			<Logo>Team Sammpaati Ground Station</Logo>
+			<Logo>Drikr NIDAR Ground Station</Logo>
 			<NavCenter>
 				<NavLinks>
 					<StyledLink href="/">Flight Data</StyledLink>
 					<StyledLink href="/params">Params</StyledLink>
-					<StyledLink href="/submissions">Submissions</StyledLink>
 				</NavLinks>
 					<ArmStatusContainer>
 						<StatusBadge armed={!Aarmed.includes("DISARMED")}>
 							{Aarmed.includes("DISARMED") ? "DISARMED" : "ARMED"}
 						</StatusBadge>
-						{Aarmed.includes("DISARMED") ? 
-							<UAVbw onClick={() => httppost("/uav/arm")} title="Disarmed - Click to Arm" /> : 
-							<UAV onClick={() => httppost("/uav/disarm")} title="Armed - Click to Disarm" />
-						}
+						{/* Arm/disarm are rule 8.16 manual interventions at -50 points
+						  * each. The server refuses them in a mission build, but a
+						  * button that exists at all invites the click, so in mission
+						  * mode this is a status indicator and nothing more. */}
+						{missionMode ? (
+							Aarmed.includes("DISARMED") ? <UAVbw title="Disarmed" /> : <UAV title="Armed" />
+						) : Aarmed.includes("DISARMED") ? (
+							<UAVbw onClick={() => httppost("/uav/arm")} title="Disarmed - Click to Arm (dev build)" />
+						) : (
+							<UAV onClick={() => httppost("/uav/disarm")} title="Armed - Click to Disarm (dev build)" />
+						)}
 					</ArmStatusContainer>
 			</NavCenter>
 			<ConnectionButton />

@@ -2,7 +2,6 @@ import React from "react"
 import "./App.css"
 import FlightData from "pages/FlightData"
 import Params from "pages/Params"
-import Submissions from "pages/Submissions"
 import "bootstrap/dist/css/bootstrap.min.css"
 import { darker } from "./theme/Colors"
 import { BrowserRouter as Router, Switch, Route, Redirect } from "react-router-dom"
@@ -27,10 +26,6 @@ const App = () => {
 
 					<Route path="/params">
 						<Params />
-					</Route>
-
-					<Route path="/submissions">
-						<Submissions />
 					</Route>
 
 					<Route path="/">

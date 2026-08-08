@@ -6,7 +6,7 @@ import time
 # useful locations
 # WebsterField=38.14469,-76.42799,6.6,315
 # StMarysField=38.314622,-76.545611,142,282.3122
-# AUVSI_SUAS=38.314622,-76.545611,142,282.3122
+# NIDAR_TEST=13.000000,80.000000,10,0.0
 # FARM_RC=38.529049,-77.736298,87,253
 
 MAP_DIR = "../client/public/map"  # from server

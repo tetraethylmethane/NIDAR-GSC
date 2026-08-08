@@ -50,7 +50,7 @@ def gen_doc(entries, step=10):
 
 def main():
     a = argparse.ArgumentParser(
-        description="Generates a KML file (to load in Google Earth) from a Team Sammpaati log file",
+        description="Generates a KML file (to load in Google Earth) from a Drikr NIDAR log file",
     )
     a.add_argument("in_file", nargs="?", default=None)
     a.add_argument("out_file", nargs="?", default=None)

@@ -1,11 +1,55 @@
-# GroundStation
+# Drikr NIDAR Ground Station
 
-Team Sammpaati's Custom Ground Station
+Mission ground station for **NIDAR 2026–27, Track 1, Mission 1 — RescueSwarm**:
+three autonomous drones searching a flood zone, geotagging survivors and
+delivering medical kits, on one unified operator interface with no external
+network.
 
+- **Systems engineering, requirements and sizing:** [Drikr-NIDAR](https://github.com/tetraethylmethane/NIDAR-RescueSwarm)
+- **What must not be changed back:** [`MISSION.md`](MISSION.md)
+
+```bash
+cd server && MISSION_MODE=1 python -m pytest mission_tests -q   # 86 tests
+./scripts/check-no-network.sh                                   # rule 8.4 guard
+python scripts/sim_mission.py --speed 8                         # 3 drones, no aircraft
+```
+
+## What it does
+
+| Rule 8.14 requires | Where |
+|---|---|
+| Mission status | `MissionStatus.js` |
+| Live camera feed from **each** drone | `VideoWall.js` + MediaMTX |
+| Position of each drone | `MissionLayers.js` |
+| Assigned search area per drone | `MissionLayers.js` — colour-coded, the visible proof for 4D-3 |
+| Geotagged survivor locations | `MissionLayers.js` — coloured by GNSS fix quality |
+| Kit delivery status | `MissionLayers.js` + `MissionStatus.js` |
+| Comms and system health | `MissionStatus.js` |
+| Consolidated mission progress | `MissionStatus.js` |
+
+**Mission builds expose no vehicle commands.** Abort and recall only — see
+[`MISSION.md`](MISSION.md) §2 and §5.
+
+> ⚠ **The abort button is not yet connected to anything.** `/api/safety/abort`
+> sets a flag that nothing reads. Until the 868 MHz chain is built it must be
+> labelled NOT IMPLEMENTED in the UI. See the systems repo,
+> `docs/implementation-plan.md` §4.
+
+## Provenance
+
+Forked from Team Sammpaati's ground station, which was written for **AUVSI SUAS**
+— a different competition with different rules. That lineage caused real
+problems, all now fixed and recorded in [`MISSION.md`](MISSION.md): an internet
+poller that breached rule 8.4, a single-vehicle data model against a
+three-aircraft mission, and a full command surface in what had to be a
+mission-safe build. AUVSI-specific features (interop submissions, ODLC service,
+UGV) have been removed.
+
+---
 
 ## Set Up Server
 
-The backend/server for the Ground Station is written in Python Flask as an API for the frontend to communicate with.
+The backend/server for the ground station is written in Python Flask as an API for the frontend to communicate with.
 To set up the server, first enter the `server` directory:
 ```bash
 cd server
@@ -114,7 +158,7 @@ If you make any edits, you will need to end the program and restart the backend.
 
 ## Client
 
-The frontend/client for the Ground Station is written in React, along with some other libraries.
+The frontend/client for the ground station is written in React, along with some other libraries.
 The backend (and by extension the Interop server) must be running before the frontend can run. Starting the client 
 without the backend running may result in an error, or silent failure.
 

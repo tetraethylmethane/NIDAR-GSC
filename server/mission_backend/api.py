@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import Blueprint, Flask, jsonify, request
+from flask import Blueprint, Flask, current_app, jsonify, request
 
 from .fleet import Fleet
 from .kml import KMLError, check_against_brief, parse_boundary
@@ -30,7 +30,12 @@ view = Blueprint("view", __name__)
 @view.get("/api/fleet")
 def fleet_snapshot():
     """The single consolidated document behind the unified interface (4D-4)."""
-    return jsonify(request.app_fleet.snapshot())
+    snap = request.app_fleet.snapshot()
+    # The client uses this to hide every command control in a mission build.
+    # Defence in depth: the server already refuses the requests, but a button
+    # that exists at all invites the click that costs -50.
+    snap["mission_mode"] = bool(current_app.config.get("MISSION_MODE", True))
+    return jsonify(snap)
 
 
 @view.get("/api/fleet/progress")

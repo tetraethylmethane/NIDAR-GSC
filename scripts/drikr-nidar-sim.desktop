@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Run Plane Simulation
-Icon=[GS_DIR]/scripts/Team Sammpaati_gs_run.png
+Icon=[GS_DIR]/scripts/Team Drikr NIDAR_gs_run.png
 Comment=Run the Ardupilot ArduPlane Simulation
 Exec="[GS_DIR]/scripts/run-sim.sh"
 Version=1.0

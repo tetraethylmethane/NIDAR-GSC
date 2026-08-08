@@ -1,5 +1,5 @@
 {
-  "name": "client",
+  "name": "drikr-nidar-gcs",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -47,5 +47,6 @@
   ],
   "devDependencies": {
     "prettier": "^2.0.5"
-  }
+  },
+  "description": "Drikr NIDAR Ground Station - mission view for NIDAR 2026-27 Mission 1"
 }

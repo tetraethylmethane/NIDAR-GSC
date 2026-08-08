@@ -514,7 +514,7 @@ const FlightPlanMap = props => {
 				<ClickLocation />
 				<LayersControl position="topright">
 					<MissionLayers fleet={missionFleet} />
-					{ /* Need for SUAS: geofence, airdrop, uav, waypoint */ }
+					{ /* Mission overlays: search areas, drones, survivors, deliveries (rule 8.14) */ }
 					<LayersControl.Overlay checked name={props.display.flightBoundary[1]}>
 						<LayerGroup>
 							<Polyline positions={circle(props.getters.flightBoundary)} color="#000000" weight={4} />

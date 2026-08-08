@@ -1,4 +1,4 @@
-# Team Sammpaati GroundStation Scripts
+# Team Drikr NIDAR GroundStation Scripts
 
 ## Simulation
 
@@ -40,24 +40,24 @@ pyenv exec python ./Tools/autotest/sim_vehicle.py --no-mavproxy -v ArduPlane
 
 Add the following function wherever your shell stores it's aliases (some common examples are `~/.bash_aliases` and `~/.oh-my-zsh/custom/aliases.zsh`), making sure to replace `[ARDUPILOT_DIR]` with the directory you noted above:
 ```bash
-sammpaati-sim() {
+drikr-nidar-sim() {
     export PYENV_VERSION="3.10.11"
     pyenv exec python [ARDUPILOT_DIR]/Tools/autotest/sim_vehicle.py --no-mavproxy -v ArduPlane --add-param-file [ARDUPILOT_DIR]/Tools/autotest/default_params/avalon.parm -L "$1"
 }
 ```
 
-After reloading your shell (e.g. `source ~/.profile`), you can run `sammpaati-sim [LOCATION]` to start the simulation.
+After reloading your shell (e.g. `source ~/.profile`), you can run `drikr-nidar-sim [LOCATION]` to start the simulation.
 
 ### Create a desktop entry
 
 1. Note the directory where you cloned `GroundStation`, which contains this README. This will be referred to as `[GS_DIR]`.
 2. Edit the `run-sim.sh` file in `[GS_DIR]/scripts` to replace part of the third line, specifying `ARDUPILOT_DIRECTORY`, with `[ARDUPILOT_DIR]` from above.
-3. Edit the `sammpaati-sim-run.desktop` file in `[GS_DIR]/scripts` to replace `[GS_DIR]` with the directory you noted above.
-4. `cp [GS_DIR]/scripts/sammpaati-sim-run.desktop ~/.local/share/applications/`
+3. Edit the `drikr-nidar-sim-run.desktop` file in `[GS_DIR]/scripts` to replace `[GS_DIR]` with the directory you noted above.
+4. `cp [GS_DIR]/scripts/drikr-nidar-sim-run.desktop ~/.local/share/applications/`
 5. Wait a few seconds, then use your desktop environment's application launcher to search for "Run Plane Simulation". Click on it to start the simulation.
 
 ## GroundStation
 
-1. Edit the `sammpaati-gs-run.desktop` file in `[GS_DIR]/scripts` to replace `[GS_DIR]` with the absolute path of your `GroundStation` directory.
-2. `cp [GS_DIR]/scripts/sammpaati-gs.desktop ~/.local/share/applications/`
-3. Wait a few seconds, then use your desktop environment's application launcher to search for "Run Team Sammpaati ". Click on it to start the GroundStation.
+1. Edit the `drikr-nidar-gs-run.desktop` file in `[GS_DIR]/scripts` to replace `[GS_DIR]` with the absolute path of your `GroundStation` directory.
+2. `cp [GS_DIR]/scripts/drikr-nidar-gs.desktop ~/.local/share/applications/`
+3. Wait a few seconds, then use your desktop environment's application launcher to search for "Run Team Drikr NIDAR ". Click on it to start the GroundStation.
