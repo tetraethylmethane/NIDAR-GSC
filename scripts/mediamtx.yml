@@ -41,9 +41,23 @@ webrtcICEServers2: []
 webrtcLocalUDPAddress: :8189
 
 # Disable protocols we do not use, so nothing unexpected listens.
-hlsDisable: true
-rtmpDisable: true
-srtDisable: true
+#
+# VERIFIED AGAINST MediaMTX v1.20.0. These keys were `hlsDisable: true`,
+# `rtmpDisable: true` and `srtDisable: true`, which is the pre-1.x spelling.
+# MediaMTX rejects unknown fields outright -- it exits with
+# `ERR: json: unknown field "srtDisable"` and never opens a port. So the config
+# had never started the server, and would have been discovered on the day.
+# Check these against the shipped mediamtx.yml when bumping the version.
+hls: false
+rtmp: false
+srt: false
+# MoQ is new in v1.20 and defaults ON. Running the server showed it quietly
+# opening :8892 (TCP + UDP) and :8893 (QUIC) and generating a TLS certificate,
+# none of which we asked for. Rule 8.6 lets the jury inspect the configuration,
+# and "why is your ground station running a QUIC server" is not a question
+# worth answering. This is also why the disable list has to be re-checked on
+# every version bump: new protocols arrive enabled.
+moq: false
 
 # Read is unauthenticated on a closed mesh; publishing is restricted so a
 # stray source cannot occupy a drone's path mid-mission.
