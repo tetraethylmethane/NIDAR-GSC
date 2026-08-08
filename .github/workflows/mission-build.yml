@@ -1,0 +1,91 @@
+# Guards on the mission build.
+#
+# The rules these enforce cost real points, and every one of them was broken at
+# some stage by a change that looked harmless in review:
+#
+#   8.4   no internet connectivity during mission execution
+#   8.13  all drones through a single ground control station
+#   8.14  eight mandatory operator displays
+#   8.16  -50 per manual intervention (waypoint change, retask, payload command)
+#   8.19  mission abort and emergency recall must exist
+#
+# Python is pinned to 3.12 ON PURPOSE. The mission server could not start on
+# Python >= 3.10 for a long time because DroneKit does collections.MutableMapping,
+# and the smoke test hid it by installing a fake dronekit module. Running CI on
+# 3.12 with nothing stubbed is what stops that returning: if someone reintroduces
+# the legacy import into the mission path, this job fails instead of passing on
+# an interpreter nobody deploys.
+name: mission-build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: pip install flask flask-cors pymavlink pytest requests
+      - name: Mission backend tests
+        working-directory: server
+        run: python -m pytest mission_tests -q
+      - name: SYS-20 — no command route may reach the mission build
+        working-directory: server
+        run: python -m pytest mission_tests/test_sys20.py -q
+      - name: The mission server must import with no DroneKit stub
+        working-directory: server
+        env:
+          MISSION_MODE: '1'
+          NIDAR_INGEST: '0'
+        run: |
+          cp sample.config.json config.json
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, ".")
+          import app
+          assert "dronekit" not in sys.modules, "DroneKit is back in the mission path"
+          assert app.app.gs is None, "legacy GroundStation was constructed"
+          legacy = [r.rule for r in app.app.url_map.iter_rules()
+                    if r.rule.startswith(("/uav", "/image"))]
+          assert legacy == [], f"legacy routes are registered: {legacy}"
+          print("mission server imports clean on", sys.version.split()[0])
+          PY
+
+  no-network:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rule 8.4 — no outbound internet calls in client source
+        run: ./scripts/check-no-network.sh
+
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install
+        working-directory: client
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      # These RENDER the rule 8.14 displays and the abort panel. Everything in
+      # client/src/mission was written, compiled and shipped without a single
+      # component ever being mounted, which is how VideoWall and MissionStatus
+      # came to exist while being referenced by no screen. A build proves the
+      # syntax is valid; it does not prove anything reaches a screen.
+      - name: Mission component render tests
+        working-directory: client
+        run: npx react-scripts test --watchAll=false --testPathPattern "mission"
+        env:
+          CI: 'true'
+      - name: Client builds
+        working-directory: client
+        run: npm run build
+        env:
+          CI: 'false'   # warnings must not fail the build; errors still do
