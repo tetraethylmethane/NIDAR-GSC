@@ -2,6 +2,9 @@
 
 import React, { createRef, useEffect, useState, useRef } from "react"
 import { MapContainer, TileLayer, Tooltip, Marker, Polyline, Circle, LayersControl, LayerGroup, useMapEvent, Popup } from "react-leaflet"
+import MissionLayers from "../mission/MissionLayers"
+import { useFleet } from "../mission/useFleet"
+import { getUrl } from "../backend"
 import { httpget } from "../backend.js"
 import L from "leaflet"
 
@@ -135,6 +138,11 @@ const FlightPlanMap = props => {
 	useEffect(() => {
 		props.setters.firstJump(-1)
 	}, [props.getters.placementType, props.getters.placementMode])
+
+	/* NIDAR mission overlay. One poll, all three drones -- the merge happens
+	 * server-side in mission_backend/fleet.py, which is what satisfies the
+	 * "single unified operator interface" criterion (4D-4). */
+	const { fleet: missionFleet } = useFleet(getUrl())
 
 	
 	// NIDAR rule 8.4 prohibits internet connectivity during mission execution,
@@ -505,6 +513,7 @@ const FlightPlanMap = props => {
 				/>
 				<ClickLocation />
 				<LayersControl position="topright">
+					<MissionLayers fleet={missionFleet} />
 					{ /* Need for SUAS: geofence, airdrop, uav, waypoint */ }
 					<LayersControl.Overlay checked name={props.display.flightBoundary[1]}>
 						<LayerGroup>

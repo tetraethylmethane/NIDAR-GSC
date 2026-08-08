@@ -116,10 +116,41 @@ candidates suffice.
 
 ---
 
+## 5. Legacy /uav routes are blocked in mission mode
+
+Splitting the new blueprint was **not enough on its own.** The legacy `/uav`
+blueprint predates NIDAR and exposes 31 routes, including
+`/uav/commands/insert`, `/uav/commands/jump`, `/uav/arm`, `/uav/mode/set` and
+`/uav/params/set` — precisely the −50 actions under rule 8.16. They were still
+reachable in a mission build.
+
+They stay registered, because the existing pages read telemetry through
+`/uav/quick` and `/uav/stats`, but in mission mode **every state-changing method
+on `/uav` and `/image` is refused with 403 before the view function runs.**
+`mission_tests/test_app_smoke.py` asserts this against nine specific paths.
+
+This was found by the smoke test, not by review.
+
+## 6. Proving it works without aircraft
+
+```bash
+python scripts/sim_mission.py --speed 8   # 3 drones, 6 survivors, deliveries
+./scripts/sim-video.sh                    # 3 H.264 feeds through MediaMTX
+```
+
+`sim_mission.py` deliberately includes the awkward cases: drone 2 drops off the
+mesh mid-search, survivor 3 is tagged `RTK_FLOAT` then re-tagged `RTK_FIXED` by
+a different drone (dedup must prefer the better fix, not the newer report), and
+survivor 6 is tagged with a 3D fix only, which must raise a visible warning —
+that is a ~100-point problem and has to be obvious while there is still time to
+re-acquire.
+
+Verified end to end: 5287 datagrams, 0 rejected, 6 survivors, correct dedup.
+
 ## Before every competition build
 
 ```bash
-cd server && MISSION_MODE=1 python -m pytest mission_tests -q   # 34 tests
+cd server && MISSION_MODE=1 python -m pytest mission_tests -q   # 86 tests
 ./scripts/check-no-network.sh                                   # no outbound calls
 ```
 

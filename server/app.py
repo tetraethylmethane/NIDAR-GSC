@@ -18,8 +18,15 @@ from utils.errors import (
 from utils.logging_setup import ROLLING_LOGS
 import sys
 
-sys.stdin.reconfigure(encoding="utf-8")
-sys.stdout.reconfigure(encoding="utf-8")  # These two lines account for Krishnan's massive brain
+# Force UTF-8 on the console streams. Guarded because `reconfigure` only exists
+# on a real TextIOWrapper: under pytest, gunicorn, or systemd without a tty,
+# stdin/stdout are replaced and this raises AttributeError, taking the whole
+# app down before Flask is even constructed.
+for _stream in (sys.stdin, sys.stdout):
+    try:
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
 
 log: logging.Logger = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
@@ -51,6 +58,47 @@ app.register_blueprint(image, url_prefix="/image")
 # ---------------------------------------------------------------------------
 MISSION_MODE: bool = os.environ.get("MISSION_MODE", "1") != "0"
 
+# The legacy /uav blueprint predates NIDAR and exposes 31 routes, including
+# /uav/commands/insert, /uav/commands/jump, /uav/arm, /uav/mode/set and
+# /uav/params/set -- precisely the actions rule 8.16 treats as manual
+# intervention at -50 points each. Splitting the new mission blueprint was not
+# enough on its own; these were still reachable in a mission build.
+#
+# They are kept registered because the legacy pages read telemetry through
+# /uav/quick and /uav/stats, but in mission mode every state-changing method is
+# refused before the view function runs. Verified by
+# mission_tests/test_app_smoke.py against the live URL map.
+_MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.before_request
+def _block_legacy_commands():
+    from flask import request as _req
+
+    if not MISSION_MODE:
+        return None
+    if _req.method in _MUTATING and _req.path.startswith(("/uav", "/image")):
+        logging.getLogger("groundstation").error(
+            "BLOCKED %s %s in MISSION_MODE -- rule 8.16 manual intervention",
+            _req.method, _req.path,
+        )
+        return (
+            jsonify({
+                "title": "Blocked in mission mode",
+                "message": (
+                    "Vehicle commands are disabled in a mission build. "
+                    "Rule 8.16 treats a waypoint change, flight-path "
+                    "correction or payload command during the mission as "
+                    "manual intervention (-50 points). Set MISSION_MODE=0 "
+                    "for flight testing."
+                ),
+                "path": _req.path,
+            }),
+            403,
+        )
+    return None
+
+
 from mission_backend.fleet import Fleet  # noqa: E402
 from mission_backend.api import safety, view  # noqa: E402
 
@@ -76,6 +124,40 @@ def _attach_fleet() -> None:
     from flask import request
 
     request.app_fleet = fleet  # type: ignore[attr-defined]
+
+
+# --- telemetry and mission-state ingest -------------------------------------
+# Two separate paths, deliberately (see Drikr-NIDAR ground-station/PLAN.md 2.1):
+#
+#   MAVLink        via mavlink-router, SYSID 1/2/3 -> position, mode, battery.
+#                  Uses pymavlink directly rather than DroneKit: DroneKit is
+#                  unmaintained, single-vehicle, and broken on Python >= 3.10
+#                  (collections.MutableMapping moved to collections.abc).
+#   Mission state  5 Hz JSON over the mesh -> region, task, detections,
+#                  deliveries. MAVLink has no message for "survivor at lat/lon,
+#                  confidence 0.87, confirmed by 3 frames".
+#
+# Both are started unless NIDAR_INGEST=0, so tests and offline tooling can
+# import app.py without opening sockets.
+if os.environ.get("NIDAR_INGEST", "1") != "0":
+    from mission_backend.mavlink_ingest import MavlinkIngest  # noqa: E402
+    from mission_backend.mission_ingest import MissionIngest  # noqa: E402
+
+    mavlink_ingest = MavlinkIngest(
+        fleet, endpoint=config.get("mavlink_endpoint", "udpin:0.0.0.0:14550")
+    )
+    mission_ingest = MissionIngest(
+        fleet, port=int(config.get("mission_state_port", 14660))
+    )
+    app.mavlink_ingest = mavlink_ingest
+    app.mission_ingest = mission_ingest
+    try:
+        mavlink_ingest.start()
+        mission_ingest.start()
+    except Exception:  # pragma: no cover - never let ingest kill the GCS
+        logging.getLogger("groundstation").exception(
+            "ingest failed to start; the GCS will run without live telemetry"
+        )
 
 logger: logging.Logger = logging.getLogger("groundstation")
 
