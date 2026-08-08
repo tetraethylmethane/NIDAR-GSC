@@ -3,6 +3,7 @@ import { Row, Modal, ModalBody, ModalHeader } from "components/Containers"
 import styled from "styled-components"
 import { Box, Button, Dropdown } from "./UIElements"
 import { getUrl, setUrl, httpget, httppost } from "../backend"
+import { useFleet } from "../mission/useFleet"
 import { ReactComponent as RawUAV } from "icons/uav.svg"
 import { ReactComponent as RawUAVbw } from "icons/uav-bw.svg"
 
@@ -107,15 +108,28 @@ const ArmStatusContainer = styled.div`
 	border-left: 1px solid #E2E8F0;
 `
 
+/*
+ * ARMED is not good news, and it was previously styled as though it were:
+ * green background, green text, the same visual language as "connected" or
+ * "healthy". Armed means the propellers can spin. Every established GCS treats
+ * it as a caution, and so should this.
+ *
+ *   NO DATA   amber   — we do not know, which is the state worth noticing
+ *   ARMED     red     — props live
+ *   DISARMED  grey    — the quiet, safe, uninteresting case
+ */
 const StatusBadge = styled.div`
 	padding: 0.3rem 0.65rem;
 	border-radius: 4px;
 	font-size: 0.65rem;
 	font-weight: 700;
 	letter-spacing: 0.03em;
-	background: ${props => props.armed ? '#D1FAE5' : '#F1F5F9'};
-	color: ${props => props.armed ? '#059669' : '#64748B'};
-	border: 1px solid ${props => props.armed ? '#A7F3D0' : '#E2E8F0'};
+	background: ${props =>
+		props.unknown ? '#FEF3C7' : props.armed ? '#FEE2E2' : '#F1F5F9'};
+	color: ${props =>
+		props.unknown ? '#B45309' : props.armed ? '#B91C1C' : '#64748B'};
+	border: 1px solid ${props =>
+		props.unknown ? '#FDE68A' : props.armed ? '#FECACA' : '#E2E8F0'};
 	white-space: nowrap;
 `
 
@@ -252,17 +266,46 @@ const ConnectionButton = (props) => {
 	)
 }
 
-const Header = ({ Aarmed = "", Amode = "", setAmode = () => {} }) => {
+/*
+ * Arm state for the whole fleet.
+ *
+ * THE BUG THIS REPLACES. App.js renders <Header /> with no props, so Aarmed
+ * defaulted to "" -- and `"".includes("DISARMED")` is false, so the badge read
+ * a green ARMED unconditionally. It said ARMED with three disarmed aircraft on
+ * the line, and it said ARMED with the backend switched off entirely. The only
+ * thing that ever set Aarmed was the Main tab, which a mission build does not
+ * render at all.
+ *
+ * A screenshot found it. No unit test would have: every component involved was
+ * behaving exactly as written.
+ *
+ * Three aircraft cannot be described by one boolean, so this reports the fleet:
+ * NO DATA when nothing is arriving, DISARMED when all are down, and "ARMED n/3"
+ * when any are live. NO DATA is the important one -- an unknown state must not
+ * render as a confident one, in either direction.
+ */
+const armState = (fleet, online) => {
+	const ids = Object.keys(fleet.vehicles || {})
+	if (!online || ids.length === 0) {
+		return { label: "NO DATA", armed: false, known: false }
+	}
+	const armed = ids.filter(id => fleet.vehicles[id].armed)
+	if (armed.length === 0) {
+		return { label: "DISARMED", armed: false, known: true }
+	}
+	return {
+		label: `ARMED ${armed.length}/${ids.length}`,
+		armed: true,
+		known: true,
+	}
+}
+
+const Header = ({ Amode = "", setAmode = () => {} }) => {
 	/* Mission builds hide every command control. Defaults to TRUE so a failed
 	 * fetch produces the safe UI, not the dangerous one. */
-	const [missionMode, setMissionMode] = useState(true)
-	useEffect(() => {
-		httpget("/api/fleet", res => {
-			if (res && res.data && typeof res.data.mission_mode === "boolean") {
-				setMissionMode(res.data.mission_mode)
-			}
-		})
-	}, [])
+	const { fleet, online } = useFleet(getUrl(), 1000)
+	const missionMode = fleet.mission_mode !== false
+	const arm = armState(fleet, online)
 
 	return (
 		<NavContainer>
@@ -279,19 +322,19 @@ const Header = ({ Aarmed = "", Amode = "", setAmode = () => {} }) => {
 					{!missionMode && <StyledLink href="/params">Params</StyledLink>}
 				</NavLinks>
 					<ArmStatusContainer>
-						<StatusBadge armed={!Aarmed.includes("DISARMED")}>
-							{Aarmed.includes("DISARMED") ? "DISARMED" : "ARMED"}
+						<StatusBadge armed={arm.armed} unknown={!arm.known}>
+							{arm.label}
 						</StatusBadge>
 						{/* Arm/disarm are rule 8.16 manual interventions at -50 points
 						  * each. The server refuses them in a mission build, but a
 						  * button that exists at all invites the click, so in mission
 						  * mode this is a status indicator and nothing more. */}
 						{missionMode ? (
-							Aarmed.includes("DISARMED") ? <UAVbw title="Disarmed" /> : <UAV title="Armed" />
-						) : Aarmed.includes("DISARMED") ? (
-							<UAVbw onClick={() => httppost("/uav/arm")} title="Disarmed - Click to Arm (dev build)" />
-						) : (
+							arm.armed ? <UAV title={arm.label} /> : <UAVbw title={arm.label} />
+						) : arm.armed ? (
 							<UAV onClick={() => httppost("/uav/disarm")} title="Armed - Click to Disarm (dev build)" />
+						) : (
+							<UAVbw onClick={() => httppost("/uav/arm")} title="Disarmed - Click to Arm (dev build)" />
 						)}
 					</ArmStatusContainer>
 			</NavCenter>
@@ -300,4 +343,4 @@ const Header = ({ Aarmed = "", Amode = "", setAmode = () => {} }) => {
 	)
 }
 
-export { Header }
+export { Header, armState }

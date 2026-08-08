@@ -120,6 +120,41 @@ because a later `RTK_FLOAT` tag is metres worse than an earlier `RTK_FIXED` one.
 Ranking is fix → frames → confidence. Confidence is last deliberately: it is
 worth nothing in position terms.
 
+## 3a. Telemetry has to be REQUESTED — do not make the ingest passive again
+
+Found by running against a real ArduCopter SITL, and impossible to find any
+other way. Measured over UDP:
+
+| What the GCS does | What arrives |
+|---|---|
+| Listen passively | `HEARTBEAT` only, 1 Hz. Nothing else. |
+| + GCS heartbeat | still `HEARTBEAT` only |
+| + `SET_MESSAGE_INTERVAL` | everything, at the rates requested |
+
+ArduPilot streams at the rates set by the `SRx_*` parameters **for the channel
+the GCS is on**, and a channel that has never had a stream request sends almost
+nothing. The ingest was a pure listener, so the fleet populated with flight mode
+and armed state and **nothing else** — `lat`, `lon`, `alt`, `battery_pct` and
+`gnss_fix` all `null`. That is rule 8.14 items 3 and 4 blank for the whole
+mission, and the survivor fix quality — worth ~100 points — unknown.
+
+The existing tests call `handle_message()` with constructed pymavlink messages.
+That verifies the field mapping and says **nothing** about whether the messages
+ever arrive. "We decode `GLOBAL_POSITION_INT` correctly" and "we receive
+`GLOBAL_POSITION_INT`" are different claims.
+
+`MavlinkIngest` now transmits a 1 Hz GCS heartbeat and
+`MAV_CMD_SET_MESSAGE_INTERVAL` per aircraft. Requests stop once position is
+flowing and resume if it stops, covering an autopilot that rebooted, a request
+dropped on a lossy link, and mavlink-router coming up after the GCS.
+
+**On SYS-20.** `SET_MESSAGE_INTERVAL` configures the telemetry stream; it cannot
+alter what the aircraft does. But *"the ingest transmits now"* is exactly the
+change that invites a helpful addition later, so
+`test_stream_request.py::test_transmits_nothing_but_heartbeat_and_stream_requests`
+enumerates every transmission and fails on anything that is not a heartbeat or
+a whitelisted stream request.
+
 ## 4. Video: three feeds, H.264, WebRTC
 
 Rule **8.14** requires a live camera feed from **each** drone. `VideoFeed.js`
@@ -138,6 +173,23 @@ MCS3**, still well inside the margin strategy.
 The defaults include public STUN servers, which would be an outbound internet
 call during the mission. Everything is same-subnet over the mesh, so host
 candidates suffice.
+
+**The config had never started the server.** `hlsDisable` / `rtmpDisable` /
+`srtDisable` is the pre-1.x spelling, and MediaMTX rejects unknown fields
+outright — `ERR: json: unknown field "srtDisable"` — exiting without opening a
+port. Now `hls: false`, `rtmp: false`, `srt: false`, verified against v1.20.0.
+
+Running it also caught **MoQ**, new in v1.20 and enabled by default, quietly
+opening `:8892` (TCP + UDP) and `:8893` (QUIC) and generating a TLS
+certificate. Rule 8.6 lets the jury inspect the configuration, and "why is your
+ground station running a QUIC server" is not a question worth answering.
+Disabled. **New protocols arrive enabled, so re-check the disable list on every
+version bump.**
+
+Verified: three H.264 feeds at 640×480@15 publish over RTSP, are decodable by a
+second client, and all three WebRTC endpoints serve. Note that the *measured*
+aggregate bitrate says nothing about the RF budget — synthetic test patterns are
+nearly static and compress to almost nothing. Only the pipeline is proven.
 
 ---
 
@@ -230,7 +282,26 @@ Two further safeguards in the UI:
 ```bash
 python scripts/sim_mission.py --speed 8   # 3 drones, 6 survivors, deliveries
 ./scripts/sim-video.sh                    # 3 H.264 feeds through MediaMTX
+python scripts/sim_radio.py               # the 868 MHz safety radio + 3 aircraft
+python scripts/sim_radio.py --deaf 2      # one aircraft does NOT acknowledge
+node scripts/browser_check.js             # real Chromium on the real page
 ```
+
+**`sim_radio.py` closes the last honest gap in the abort path.** With no radio
+attached the endpoint correctly returns 503 `NO_RADIO` — which also meant nobody
+had ever seen the path *work*. This binds the port the GCS transmits to and
+decodes each frame with the real `safety_link.protocol.Receiver`, the actual
+aircraft-side class rather than a mock. Verified:
+
+| Scenario | Result |
+|---|---|
+| all three acknowledge | `ACKNOWLEDGED` in <1 s, 3 frames, transmission then stops |
+| `--deaf 2` | `acked=[1,3] missing=[2]` held visible, `TIMEOUT` at 10 s |
+| `--loss 0.5` | repeats still get all three through |
+
+The `--deaf` case is the one worth having: it is exactly what the panel exists
+to surface. It proves **nothing about 868 MHz** — not range, airtime, the LoRa
+module, interference or the aerial. Those need the radio and a field.
 
 `sim_mission.py` deliberately includes the awkward cases: drone 2 drops off the
 mesh mid-search, survivor 3 is tagged `RTK_FLOAT` then re-tagged `RTK_FIXED` by
@@ -241,12 +312,57 @@ re-acquire.
 
 Verified end to end: 5287 datagrams, 0 rejected, 6 survivors, correct dedup.
 
+## 8. What a screenshot found that no test could
+
+`scripts/browser_check.js` drives real Chromium against the built client and a
+live backend. jsdom has no layout, no network and no WebRTC, so the render tests
+could not have found any of these. Every component involved was doing exactly
+what it had been told.
+
+**The arm badge said ARMED when nothing was armed.** `App.js` renders
+`<Header />` with no props, so `Aarmed` defaulted to `""` — and
+`"".includes("DISARMED")` is `false`, so the badge showed a **green ARMED**
+unconditionally: with three disarmed aircraft on the line, and with the backend
+switched off entirely. The only thing that ever set `Aarmed` was the Main tab,
+which a mission build does not render.
+
+It now derives from the fleet, and reports `NO DATA` / `DISARMED` /
+`ARMED n/3` — three aircraft cannot be described by one boolean, and an unknown
+state must not render as a confident one in either direction. The colours were
+inverted too: ARMED was styled green, the same visual language as "healthy".
+Armed means the propellers can spin. It is amber for unknown, red for armed,
+grey for disarmed.
+
+**A missing route returned 500, not 404.** The catch-all `@app.errorhandler
+(Exception)` swallowed werkzeug's `HTTPException`, so every route that does not
+exist reported `500 INTERNAL SERVER ERROR`. A 500 says the ground station is
+broken; a 404 says that is not a thing here. With a jury entitled to inspect,
+the difference is worth having.
+
+**`ref` on `MapContainer` does nothing in react-leaflet 3.2.5.** That version
+exposes the Leaflet map through `whenCreated`; `ref` forwarding arrived in v4.
+The existing `createRef()` was a dead ref — harmless only because nothing read
+it.
+
+**The map never followed the aircraft.** It opened on a hardcoded 28.4220,
+77.5263 and stayed there. With tiles cached for the actual operating area, that
+renders a grey rectangle with the boundary drawn on nothing — *the exact
+appearance of a broken tile cache, produced by a completely healthy one.* It
+now flies to the fleet on the first fix, once only, so it does not fight an
+operator who has panned somewhere deliberately.
+
+**The map polled a dev route on every mount.** `FlightMap` requested
+`/uav/commands/export` unconditionally; that is the dev build's editable
+waypoint list, and a mission build does not have the route.
+
 ## Before every competition build
 
 ```bash
-cd server && MISSION_MODE=1 python -m pytest mission_tests -q   # 107 tests
+cd server && MISSION_MODE=1 python -m pytest mission_tests -q   # 118 tests
 python utils/slippy_map_getter.py --verify                      # tiles intact
-./scripts/check-no-network.sh                                   # no outbound calls
+cd ../client && CI=true npx react-scripts test --watchAll=false # 22 render tests
+cd .. && ./scripts/check-no-network.sh                          # no outbound calls
+node scripts/browser_check.js                                   # the real page
 ```
 
 Then confirm, with the machine's network interfaces **physically down**:

@@ -6,6 +6,7 @@ import traceback
 
 from flask import Flask, jsonify, send_file, Response
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 
 from utils.errors import (
     InvalidRequestError,
@@ -222,6 +223,25 @@ app.gs_config = config
 
 @app.errorhandler(Exception)
 def handle_error(e: Exception) -> tuple[Response, int]:
+    # HTTPException is werkzeug telling us the status it already decided --
+    # 404 for a route that does not exist, 405 for a wrong method. Catching
+    # Exception swallowed those and reported 500, so every missing route looked
+    # like a crashed server. That mattered here: in a mission build the legacy
+    # /uav routes are deliberately absent, and the browser check found a page
+    # still requesting one and getting "500 INTERNAL SERVER ERROR" back.
+    #
+    # A 500 says "the ground station is broken". A 404 says "that is not a
+    # thing here". During a scored mission, with a jury entitled to inspect,
+    # the difference is worth having.
+    if isinstance(e, HTTPException):
+        return (
+            jsonify({
+                "title": e.name,
+                "message": e.description,
+                "exception": type(e).__name__,
+            }),
+            e.code or 500,
+        )
     logger.error(type(e).__name__)
     logger.info("Traceback of %s : ", type(e).__name__, exc_info=e)
     return (

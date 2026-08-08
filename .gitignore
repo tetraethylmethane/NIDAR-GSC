@@ -153,3 +153,8 @@ cython_debug/
 !/server/assets/params/plane.json
 /client/public/map/*/*/*
 odlc.json
+
+# browser_check.js output (screenshots, page dumps)
+/browser-check/
+serve.out
+serve.err

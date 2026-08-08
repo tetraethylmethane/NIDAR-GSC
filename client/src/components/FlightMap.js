@@ -1,6 +1,6 @@
 // @flow
 
-import React, { createRef, useEffect, useState, useRef } from "react"
+import React, { useEffect, useState, useRef } from "react"
 import { MapContainer, TileLayer, Tooltip, Marker, Polyline, Circle, LayersControl, LayerGroup, useMapEvent, Popup } from "react-leaflet"
 import MissionLayers from "../mission/MissionLayers"
 import { useFleet } from "../mission/useFleet"
@@ -57,19 +57,48 @@ const FlightPlanMap = props => {
 	const [edited, setEdited] = useState(0)
 
 
-	let mapRef = createRef()
+	/* `ref` on MapContainer does NOTHING in react-leaflet 3.2.5 -- that version
+	 * exposes the Leaflet map through `whenCreated`, and `ref` forwarding only
+	 * arrived in v4. The old `let mapRef = createRef()` was therefore a dead
+	 * ref that also allocated a fresh object on every render. Nothing read it,
+	 * so nothing broke; it is not something to build a fly-to-fleet effect on.
+	 *
+	 * State rather than a ref, so the effect below re-runs once the map exists. */
+	const [map, setMap] = useState(null)
 	const [icons, setIcons] = useState({})
 	const tileRef = useRef(null)
 
+	/* NIDAR mission overlay. One poll, all three drones -- the merge happens
+	 * server-side in mission_backend/fleet.py, which is what satisfies the
+	 * "single unified operator interface" criterion (4D-4).
+	 *
+	 * Read before the effects below, because they need to know whether this is
+	 * a mission build. Defaults to true, so nothing dev-only fires in the
+	 * window before the first poll returns. */
+	const { fleet: missionFleet } = useFleet(getUrl())
+	const missionMode = missionFleet.mission_mode !== false
+
 	useEffect(() => {
 
-		httpget("/uav/commands/export", response => {
-			let points = response.data.waypoints.map((marker) => {
-				return { num: marker.num, cmd: marker.cmd, p1: marker.p1, p2: marker.p2, p3: marker.p3 * 3.281, p4: marker.p4, lat: marker.lat, lng: marker.lon, alt: marker.alt * 3.281 } // convert altitude from meters to feet
+		/* The stored flight plan is a DEV concern: it is the waypoint list the
+		 * dev build lets you edit and write to the aircraft. In a mission build
+		 * /uav is not registered at all, and this fired anyway on every mount.
+		 *
+		 * The browser check caught it, and it was worth catching twice over:
+		 * the request itself is harmless, but the response was "500 INTERNAL
+		 * SERVER ERROR" in the operator's console, because the app's catch-all
+		 * error handler was turning werkzeug's 404 into a 500. Both ends are
+		 * fixed -- this no longer asks, and app.py no longer mislabels a
+		 * missing route as a crash. */
+		if (!missionMode) {
+			httpget("/uav/commands/export", response => {
+				let points = response.data.waypoints.map((marker) => {
+					return { num: marker.num, cmd: marker.cmd, p1: marker.p1, p2: marker.p2, p3: marker.p3 * 3.281, p4: marker.p4, lat: marker.lat, lng: marker.lon, alt: marker.alt * 3.281 } // convert altitude from meters to feet
+				})
+				props.setters.path(points)
+				props.setters.pathSave(structuredClone(points))
 			})
-			props.setters.path(points)
-			props.setters.pathSave(structuredClone(points))
-		})
+		}
 
 		var MarkerIcon = L.Icon.extend({
 			options: {
@@ -139,12 +168,32 @@ const FlightPlanMap = props => {
 		props.setters.firstJump(-1)
 	}, [props.getters.placementType, props.getters.placementMode])
 
-	/* NIDAR mission overlay. One poll, all three drones -- the merge happens
-	 * server-side in mission_backend/fleet.py, which is what satisfies the
-	 * "single unified operator interface" criterion (4D-4). */
-	const { fleet: missionFleet } = useFleet(getUrl())
+	/*
+	 * Fly to the aircraft the first time we know where they are.
+	 *
+	 * The map opened on a hardcoded 28.4220, 77.5263 and stayed there. With
+	 * tiles cached for the actual operating area, that produced a grey
+	 * rectangle with the boundary drawn on nothing -- the exact appearance of
+	 * a broken tile cache, from a cache that was completely healthy. A
+	 * screenshot found it; nothing else would have, because every component
+	 * was doing precisely what it had been told.
+	 *
+	 * Once only, on the first fix. Re-centring on every telemetry update would
+	 * fight an operator who has panned somewhere deliberately -- and during a
+	 * search they will have.
+	 */
+	const centred = useRef(false)
+	useEffect(() => {
+		if (centred.current || !map) return
+		const fixes = Object.values(missionFleet.vehicles || {})
+			.filter(v => v.lat != null && v.lon != null)
+		if (!fixes.length) return
+		const lat = fixes.reduce((s, v) => s + v.lat, 0) / fixes.length
+		const lon = fixes.reduce((s, v) => s + v.lon, 0) / fixes.length
+		map.setView([lat, lon], 16)
+		centred.current = true
+	}, [missionFleet, map])
 
-	
 	// NIDAR rule 8.4 prohibits internet connectivity during mission execution,
 	// and 8.17 prohibits relying on any external network. This previously polled
 	// https://g.co every 5 s and switched to online ArcGIS tiles whenever
@@ -498,7 +547,7 @@ const FlightPlanMap = props => {
 				center={state.latlng}
 				length={4}
 				onClick={handleClick}
-				ref={mapRef}
+				whenCreated={setMap}
 				zoom={16.5}
 				zoomSnap={0.5}
 				wheelPxPerZoomLevel={120}

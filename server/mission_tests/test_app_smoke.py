@@ -168,6 +168,28 @@ def test_legacy_command_paths_are_refused_with_a_reason_not_a_404(app_module, pa
     assert "mission mode" in r.get_json()["title"].lower()
 
 
+def test_a_missing_route_is_a_404_not_a_500(app_module):
+    """The catch-all error handler was swallowing werkzeug's HTTPException and
+    reporting 500 for every route that does not exist.
+
+    Found by the browser check: the map still requested /uav/commands/export,
+    which a mission build correctly does not have, and the operator's console
+    showed "500 INTERNAL SERVER ERROR". A 500 says the ground station is
+    broken; a 404 says that is not a thing here. With a jury entitled to
+    inspect, the difference is worth having.
+    """
+    c = app_module.app.test_client()
+    assert c.get("/uav/commands/export").status_code == 404
+    assert c.get("/no/such/route").status_code == 404
+
+
+def test_a_wrong_method_is_a_405_not_a_500(app_module):
+    r = app_module.app.test_client().post("/api/fleet")
+    assert r.status_code in (403, 405), (
+        f"got {r.status_code}; a wrong method must not look like a crash"
+    )
+
+
 def test_fleet_endpoint_serves_every_8_14_field(app_module):
     client = app_module.app.test_client()
     body = client.get("/api/fleet").get_json()

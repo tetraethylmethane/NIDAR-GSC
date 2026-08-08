@@ -17,7 +17,34 @@
  */
 const fs = require("fs")
 const path = require("path")
-const puppeteer = require("puppeteer")
+const { createRequire } = require("module")
+const { pathToFileURL } = require("url")
+
+/* Two wrinkles, both worth a comment because they are not guessable.
+ *
+ * 1. Node resolves from the SCRIPT's directory, not the cwd, so a plain
+ *    require("puppeteer") looks in scripts/node_modules and fails however you
+ *    invoke it. Puppeteer is a client devDependency -- it has no business in a
+ *    mission build -- so resolve it from there explicitly.
+ * 2. Puppeteer is ESM-only, so require() of it throws ERR_REQUIRE_ESM even
+ *    once resolved. It has to be loaded with a dynamic import of the file URL.
+ */
+async function loadPuppeteer() {
+	try {
+		const clientRequire = createRequire(
+			path.join(__dirname, "..", "client", "package.json"))
+		const entry = clientRequire.resolve("puppeteer")
+		const mod = await import(pathToFileURL(entry).href)
+		return mod.default || mod
+	} catch (e) {
+		console.error(
+			"Could not load puppeteer. It is a dev-only tool and deliberately " +
+			"not a mission dependency:\n\n" +
+			"    cd client && npm install --no-save puppeteer\n\n" +
+			`(${e.message.split("\n")[0]})`)
+		process.exit(2)
+	}
+}
 
 const arg = (name, dflt) => {
 	const i = process.argv.indexOf(`--${name}`)
@@ -49,6 +76,7 @@ const FORBIDDEN = [
 ]
 
 ;(async () => {
+	const puppeteer = await loadPuppeteer()
 	fs.mkdirSync(OUT, { recursive: true })
 	const browser = await puppeteer.launch({
 		headless: "new",
@@ -66,11 +94,18 @@ const FORBIDDEN = [
 
 	const consoleErrors = []
 	const failedRequests = []
+	const badResponses = []
 	page.on("console", m => {
 		if (m.type() === "error") consoleErrors.push(m.text())
 	})
 	page.on("requestfailed", r => {
 		failedRequests.push(`${r.failure().errorText} ${r.url()}`)
+	})
+	/* "Failed to load resource: 500" in the console tells you nothing without
+	 * the URL. Record the status and the URL together -- the first run of this
+	 * check produced a 500 and fourteen 404s that were invisible otherwise. */
+	page.on("response", r => {
+		if (r.status() >= 400) badResponses.push(`${r.status()} ${r.url()}`)
 	})
 	page.on("pageerror", e => consoleErrors.push(`PAGEERROR ${e.message}`))
 
@@ -107,17 +142,41 @@ const FORBIDDEN = [
 	console.log(`  failed tile requests: ${tile404.length}`)
 	tile404.slice(0, 5).forEach(t => console.log(`    ${t}`))
 
+	// HTTP errors, grouped. A 500 from the backend is a defect; a 404 for a
+	// WebRTC path with no publisher is expected when no video is running.
+	console.log("\n=== HTTP >= 400 ===")
+	const grouped = {}
+	for (const b of badResponses) {
+		const [status, u] = [b.slice(0, 3), b.slice(4)]
+		const key = `${status} ${u.replace(/\/\d+\/\d+\/\d+\.png$/, "/{z}/{x}/{y}.png")}`
+		grouped[key] = (grouped[key] || 0) + 1
+	}
+	if (!Object.keys(grouped).length) console.log("  none")
+	Object.entries(grouped)
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, 12)
+		.forEach(([k, n]) => console.log(`  x${String(n).padStart(3)}  ${k}`))
+
+	// A 500 is always ours and always a defect.
+	const fiveHundreds = badResponses.filter(b => b.startsWith("5"))
+	if (fiveHundreds.length) {
+		failures++
+		console.log(`\n  ${fiveHundreds.length} SERVER ERROR(S) — these are defects:`)
+		;[...new Set(fiveHundreds)].slice(0, 5).forEach(e => console.log(`    ${e}`))
+	}
+
 	console.log("\n=== console errors ===")
 	if (!consoleErrors.length) console.log("  none")
-	consoleErrors.slice(0, 15).forEach(e => console.log(`  ${e.slice(0, 200)}`))
+	;[...new Set(consoleErrors)].slice(0, 15)
+		.forEach(e => console.log(`  ${e.slice(0, 200)}`))
 
-	console.log("\n=== other failed requests ===")
+	console.log("\n=== failed requests (network level) ===")
 	const other = failedRequests.filter(r => !r.includes("/map/"))
 	if (!other.length) console.log("  none")
-	other.slice(0, 10).forEach(e => console.log(`  ${e.slice(0, 200)}`))
+	;[...new Set(other)].slice(0, 10).forEach(e => console.log(`  ${e.slice(0, 200)}`))
 
 	fs.writeFileSync(path.join(OUT, "report.json"), JSON.stringify(
-		{ url, failures, consoleErrors, failedRequests }, null, 2))
+		{ url, failures, consoleErrors, failedRequests, badResponses }, null, 2))
 
 	await browser.close()
 	console.log(`\nscreenshot: ${path.join(OUT, "flightdata.png")}`)
