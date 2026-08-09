@@ -76,10 +76,24 @@ echo "=== SITL ==="
 # gazebo-iris.parm, NOT copter.parm. The generic defaults leave the JSON
 # physics link half-configured and SITL logs "No JSON sensor message received,
 # resending servos" forever while the EKF never converges.
+#
+# The project failsafe set is layered ON TOP of gazebo-iris.parm. Without it the
+# aircraft flies stock ArduCopter defaults -- BATT_FS_LOW_ACT = 0, no battery
+# failsafe at all -- which is not the aircraft being designed.
 cd $OUT
+GZ_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SYS_PARAMS="${NIDAR_SYS:-$(dirname "$(dirname "$GZ_HERE")")/Drikr-NIDAR}/firmware/ardupilot-params/rescueswarm-drone1.parm"
+DEFAULTS="$AP/Tools/autotest/default_params/gazebo-iris.parm"
+if [ -f "$SYS_PARAMS" ]; then
+  DEFAULTS="$DEFAULTS,$SYS_PARAMS"
+  echo "loading project parameters: $(basename "$SYS_PARAMS")"
+else
+  echo "WARNING: $SYS_PARAMS not found -- flying STOCK defaults."
+  echo "         Battery failsafe will be disabled. Set NIDAR_SYS."
+fi
 "$BIN" -M JSON --home -35.363262,149.165237,584,353 --sysid 1 \
     --serial0 "udpclient:127.0.0.1:14570" \
-    --defaults "$AP/Tools/autotest/default_params/gazebo-iris.parm" \
+    --defaults "$DEFAULTS" \
     > $OUT/sitl.log 2>&1 &
 sleep 15
 grep -q 'No JSON sensor' $OUT/sitl.log \

@@ -1,0 +1,32 @@
+# SIMULATOR-ONLY parameters. Never loaded onto an aircraft.
+#
+# firmware/ardupilot-params/rescueswarm-drone*.parm describes the real vehicle.
+# These describe the simulated WORLD it flies in, and the two were mismatched
+# in a way that made the aircraft unflyable in SITL the moment the real
+# parameters were finally loaded:
+#
+#   SIM_BATT_VOLTAGE defaults to 12.6 V -- a 4S pack. RescueSwarm is 6S, so
+#   BATT_LOW_VOLT is 20.4 V. A 12.6 V battery is permanently below a 20.4 V
+#   threshold, so the aircraft booted straight into low-voltage failsafe and
+#   refused to arm: "PreArm: Battery 1 low voltage failsafe".
+#
+#   SIM_GPS2_DISABLE defaults to 1. The real aircraft has a dual-antenna RTK
+#   pair and GPS_TYPE2 = 1, so pre-arm failed with "GPS 2: was not found".
+#
+# Both were invisible while the sim ran on stock defaults, because stock
+# defaults have no battery failsafe and one GPS. Loading the real parameters is
+# what surfaced them -- which is the point of loading the real parameters.
+
+# 6S 21700 at 4.2 V/cell, 13.5 Ah. Matches BATT_CAPACITY in the flight params.
+SIM_BATT_VOLTAGE,25.2
+SIM_BATT_CAP_AH,13.5
+
+# Second GNSS, so the dual-antenna configuration can arm.
+SIM_GPS2_DISABLE,0
+SIM_GPS2_TYPE,1
+
+# A plausible flood-plain day. The sizing model holds groundspeed constant
+# through wind, so this exercises that assumption rather than flattering it.
+SIM_WIND_SPD,6
+SIM_WIND_DIR,270
+SIM_WIND_TURB,3

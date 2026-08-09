@@ -65,18 +65,41 @@ curl -sf http://127.0.0.1:5000/api/fleet >/dev/null || {
 echo "backend up"
 
 # --- three aircraft --------------------------------------------------------
+# THE AIRCRAFT MUST FLY THE AIRCRAFT'S PARAMETERS.
+#
+# This launched with stock copter.parm and nothing else for as long as it has
+# existed. firmware/ardupilot-params/ has carried a reviewed, validated,
+# unit-tested failsafe set the whole time -- and no simulation ever loaded it.
+# Stock ArduCopter ships BATT_FS_LOW_ACT = 0 and BATT_LOW_MAH = 0, so the
+# battery failsafe was DISABLED in every run: a low battery did nothing at all,
+# and the aircraft flew until the sim battery hit zero. That is exactly what a
+# reviewer sees in a simulation video and reads as "it does not come home".
+#
+# Same class of bug as mavlink-router's Mode = Normal: a config that parses,
+# starts, looks right in review, and is not in the path.
+PARAMS_DIR="$REPO_SYS/firmware/ardupilot-params"
+for i in 1 2 3; do
+  [ -f "$PARAMS_DIR/rescueswarm-drone$i.parm" ] || {
+    echo "missing $PARAMS_DIR/rescueswarm-drone$i.parm"
+    echo "generate with: python params.py --drones 3 --out ."
+    echo "refusing to fly stock defaults -- that is the bug this check exists for"
+    exit 2; }
+done
+
 for i in 1 2 3; do
   d="$RUN/sitl$i"; mkdir -p "$d"
   lon=$(python3 -c "print(80.0000 + ($i-1)*0.0010)")
   port=$((14559 + i))
+  # --defaults takes a comma-separated list, applied left to right, so the
+  # project set overrides the stock set rather than merely sitting beside it.
   ( cd "$d"; "$BIN" --model quad --instance $((i-1)) --sysid "$i" \
       --home "12.9990,$lon,10,0" \
       --serial0 "udpclient:127.0.0.1:14550" \
       --serial1 "udpclient:127.0.0.1:$port" \
-      --defaults "$AP/Tools/autotest/default_params/copter.parm" \
+      --defaults "$AP/Tools/autotest/default_params/copter.parm,$PARAMS_DIR/rescueswarm-drone$i.parm" \
       > "$d/sitl.log" 2>&1 ) &
 done
-echo "3 ArduCopter SITL launched"
+echo "3 ArduCopter SITL launched with rescueswarm-drone{1,2,3}.parm"
 
 # Mission state: survivors, deliveries, phases. MAVLink carries none of it.
 python3 "$REPO_GSC/scripts/sim_mission.py" --speed 6 --port 14660 \
